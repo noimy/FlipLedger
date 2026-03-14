@@ -1,0 +1,10 @@
+{
+  "name": "flipledger",
+  "version": "1.0.0",
+  "description": "FlipLedger — eBay Reseller Accountant",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "20.x"
+  }
+}
