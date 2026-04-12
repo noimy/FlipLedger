@@ -486,7 +486,7 @@
     </div>
     <div class="tbl-wrap">
       <table><thead><tr>
-        <th>Date</th><th>Item</th><th>Platform</th><th>Sold For</th><th>COGS</th><th>All Fees</th><th>Net Profit</th><th>Margin</th><th>Tax Set-Aside</th><th>Photos</th><th></th>
+        <th>Date</th><th>Item</th><th>Platform</th><th>Sold For</th><th>Refund</th><th>COGS</th><th>All Fees</th><th>Net Profit</th><th>Net ex-COGS</th><th>Margin</th><th>Tax Set-Aside</th><th>Photos</th><th></th>
       </tr></thead><tbody id="histBody"></tbody></table>
       <div id="histEmpty" style="display:none"><div class="empty"><div class="empty-icon">📋</div><div class="empty-title">No sales yet</div><div>Add your first sale to get started</div></div></div>
     </div>
@@ -730,6 +730,14 @@
           </select>
         </div>
       </div>
+      <!-- REFUND SECTION -->
+      <div style="background:var(--red-dim);border:1px solid rgba(140,74,74,0.2);border-radius:var(--r);padding:10px 12px;margin-bottom:8px;">
+        <div style="font-size:10px;font-weight:600;color:var(--red-light);text-transform:uppercase;letter-spacing:.7px;margin-bottom:8px;">↩ Refund Issued</div>
+        <div class="form-grid fg2" style="margin-bottom:0;">
+          <div class="fgrp"><label>Refund Amount $</label><input type="number" id="es_refund" placeholder="0.00" step="0.01" min="0" oninput="calcEditLive()"></div>
+          <div class="fgrp"><label>Refund Reason</label><input type="text" id="es_refund_reason" placeholder="e.g. Item not as described"></div>
+        </div>
+      </div>
       <div class="div"></div>
       <div class="form-grid fg4">
         <div class="fgrp"><label>Sold For $</label><input type="number" id="es_sold" step="0.01" min="0" oninput="calcEditLive()"></div>
@@ -743,9 +751,11 @@
       </div>
       <div class="calc-bar" style="margin-bottom:10px;">
         <div class="calc-item"><div class="calc-item-lbl">Sale Price</div><div class="calc-item-val b" id="es_cp_sold">$0.00</div></div>
+        <div class="calc-item"><div class="calc-item-lbl">Refund</div><div class="calc-item-val r" id="es_cp_refund">$0.00</div></div>
         <div class="calc-item"><div class="calc-item-lbl">Total Costs</div><div class="calc-item-val r" id="es_cp_costs">$0.00</div></div>
         <div class="calc-item"><div class="calc-item-lbl">Net Profit</div><div class="calc-item-val" id="es_cp_profit">$0.00</div></div>
         <div class="calc-item"><div class="calc-item-lbl">Margin %</div><div class="calc-item-val" id="es_cp_margin">0%</div></div>
+        <div class="calc-item"><div class="calc-item-lbl">Net ex-COGS</div><div class="calc-item-val" id="es_cp_excogs">$0.00</div></div>
         <div class="calc-item"><div class="calc-item-lbl">Est. Tax Owed</div><div class="calc-item-val r" id="es_cp_tax">$0.00</div></div>
       </div>
       <div class="div"></div>
@@ -928,6 +938,8 @@ function openEditSale(id) {
   ge('es_adfee').value    = s.adfee    || '';
   ge('es_otherfee').value = s.otherfee || '';
   ge('es_notes').value    = s.notes    || '';
+  ge('es_refund').value        = s.refund        || '';
+  ge('es_refund_reason').value = s.refundReason  || '';
 
   // set platform select
   const plat = ge('es_platform');
@@ -953,10 +965,13 @@ function calcEditLive() {
     sold:ge('es_sold').value, cogs:ge('es_cogs').value,
     shipping:ge('es_shipping').value, salestax:ge('es_salestax').value,
     txfee:ge('es_txfee').value, adfee:ge('es_adfee').value,
-    otherfee:ge('es_otherfee').value
+    otherfee:ge('es_otherfee').value, refund:ge('es_refund').value||0
   };
   const c = calcSale(s);
   ge('es_cp_sold').textContent   = '$'+(+s.sold||0).toFixed(2);
+  const refEl=ge('es_cp_refund');
+  refEl.textContent = c.refund>0 ? '-$'+c.refund.toFixed(2) : '$0.00';
+  refEl.className   = 'calc-item-val '+(c.refund>0?'r':'');
   ge('es_cp_costs').textContent  = '$'+c.totalCosts.toFixed(2);
   const pe = ge('es_cp_profit');
   pe.textContent = (c.profit>=0?'+$':'-$')+Math.abs(c.profit).toFixed(2);
@@ -964,6 +979,9 @@ function calcEditLive() {
   const me = ge('es_cp_margin');
   me.textContent = c.margin.toFixed(1)+'%';
   me.className   = 'calc-item-val '+(c.margin>=20?'g':c.margin>=0?'y':'r');
+  const exEl=ge('es_cp_excogs');
+  exEl.textContent = (c.netExCogs>=0?'+$':'-$')+Math.abs(c.netExCogs).toFixed(2);
+  exEl.className   = 'calc-item-val '+(c.netExCogs>=0?'g':'r');
   ge('es_cp_tax').textContent = '$'+c.taxAside.toFixed(2);
 }
 
@@ -1005,6 +1023,8 @@ function saveEditSale() {
     adfee    : +ge('es_adfee').value    || 0,
     otherfee : +ge('es_otherfee').value || 0,
     notes    : ge('es_notes').value,
+    refund       : +ge('es_refund').value        || 0,
+    refundReason :  ge('es_refund_reason').value || '',
     photos   : [...editSalePhotos]
   };
   save();
@@ -1170,15 +1190,21 @@ function ge(id)  { return document.getElementById(id); }
 function gv(id)  { return ge(id)?.value||''; }
 
 function calcSale(s) {
-  const sold=+s.sold||0, salestax=+s.salestax||0;
+  const sold=+s.sold||0, salestax=+s.salestax||0, refund=+s.refund||0;
   const revenue=sold;
-  const netRevenue=sold-salestax;
+  // Net revenue after sales tax and any refund issued to buyer
+  const netRevenue=sold-salestax-refund;
   const totalCosts=(+s.cogs||0)+(+s.shipping||0)+(+s.txfee||0)+(+s.adfee||0)+(+s.otherfee||0);
   const profit=netRevenue-totalCosts;
   const margin=netRevenue>0?(profit/netRevenue)*100:0;
   const taxRate=+ge('globalTaxRate').value/100;
   const taxAside=profit>0?profit*taxRate:0;
-  return {sold,salestax,revenue,netRevenue,totalCosts,profit,margin,taxAside};
+  // Net ex-COGS: cash result purely from the transaction (no sourcing cost factored in)
+  // = what you received minus what you gave back minus fees, but ignoring what you paid for the item
+  const feesOnly=(+s.shipping||0)+(+s.txfee||0)+(+s.adfee||0)+(+s.otherfee||0);
+  const netExCogs=netRevenue-feesOnly;
+  const hasRefund=refund>0;
+  return {sold,salestax,refund,revenue,netRevenue,totalCosts,profit,margin,taxAside,netExCogs,hasRefund};
 }
 
 function filterSales(f) {
@@ -1410,14 +1436,20 @@ function renderHistory(){
   ge('histEmpty').style.display='none';
   ge('histBody').innerHTML=filtered.map(s=>{
     const c=calcSale(s),fees=(+s.txfee||0)+(+s.adfee||0)+(+s.otherfee||0);
+    const refundCell = c.refund>0
+      ? `<td><span class="r fw">-$${c.refund.toFixed(2)}</span>${s.refundReason?`<div style="font-size:9px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:80px;" title="${s.refundReason}">${s.refundReason}</div>`:''}</td>`
+      : `<td style="color:var(--text3);">—</td>`;
+    const exCogsClass = c.netExCogs>=0?'g':'r';
     return`<tr>
       <td>${s.date}</td>
-      <td class="td-title" title="${s.title}">${s.title}</td>
+      <td class="td-title" title="${s.title}">${s.title}${c.hasRefund?` <span style="font-size:9px;background:var(--red-dim);color:var(--red-light);padding:1px 5px;border-radius:3px;margin-left:3px;">↩</span>`:''}</td>
       <td><span class="badge ${platformBadge(s.platform)}">${s.platform}</span></td>
       <td>$${(+s.sold).toFixed(2)}</td>
+      ${refundCell}
       <td>$${(+s.cogs).toFixed(2)}</td>
       <td>$${fees.toFixed(2)}</td>
       <td class="fw ${c.profit>=0?'g':'r'}">${c.profit>=0?'+':'-'}$${Math.abs(c.profit).toFixed(2)}</td>
+      <td class="fw ${exCogsClass}" title="Sale received minus refund minus fees, not counting what you paid for the item">${c.netExCogs>=0?'+':'-'}$${Math.abs(c.netExCogs).toFixed(2)}</td>
       <td class="${c.margin>=20?'g':c.margin>=0?'y':'r'}">${c.margin.toFixed(1)}%</td>
       <td class="r">$${c.taxAside.toFixed(2)}</td>
       <td>${photosBtn(s.photos||[], s.title)}</td>
