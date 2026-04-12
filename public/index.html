@@ -1191,7 +1191,8 @@ function gv(id)  { return ge(id)?.value||''; }
 
 function calcSale(s) {
   const sold=+s.sold||0, salestax=+s.salestax||0, refund=+s.refund||0;
-  const revenue=sold;
+  // Gross revenue: for returns, only count what you actually kept (sold minus refund)
+  const revenue = sold - refund;
   // Net revenue after sales tax and any refund issued to buyer
   const netRevenue=sold-salestax-refund;
   const totalCosts=(+s.cogs||0)+(+s.shipping||0)+(+s.txfee||0)+(+s.adfee||0)+(+s.otherfee||0);
