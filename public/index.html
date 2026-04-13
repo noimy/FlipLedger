@@ -1204,43 +1204,43 @@ function calcSale(s) {
   const taxAside=profit>0?profit*taxRate:0;
   // Net ex-COGS: cash result purely from the transaction (no sourcing cost factored in)
   // = what you received minus what you gave back minus fees, but ignoring what you paid for the item
-const revenue = (+s.sold || 0);
-const cogs = (+s.cogs || 0);
-const shipping = (+s.shipping || 0);
-const fees = (+s.txfee || 0) + (+s.adfee || 0) + (+s.otherfee || 0);
-
-const totalCosts = cogs + shipping + fees;
-const profit = revenue - totalCosts;
-const margin = revenue ? (profit / revenue) * 100 : 0;
-
-const taxRate = +ge('globalTaxRate').value / 100;
-const taxAside = profit > 0 ? profit * taxRate : 0;
-
-const hasRefund = refund > 0;
-
-// 🔥 FIXED RETURN HANDLING (USES REAL INPUTS)
-if (hasRefund || s.sold < 0) {
   const revenue = (+s.sold || 0);
   const cogs = (+s.cogs || 0);
   const shipping = (+s.shipping || 0);
   const fees = (+s.txfee || 0) + (+s.adfee || 0) + (+s.otherfee || 0);
-
+  
   const totalCosts = cogs + shipping + fees;
   const profit = revenue - totalCosts;
-
-  return {
-    sold,
-    salestax,
-    refund,
-    revenue,
-    netRevenue: revenue,
-    totalCosts,
-    profit,
-    margin: 0,
-    taxAside: 0,
-    netExCogs: profit,
-    hasRefund: true
-  };
+  const margin = revenue ? (profit / revenue) * 100 : 0;
+  
+  const taxRate = +ge('globalTaxRate').value / 100;
+  const taxAside = profit > 0 ? profit * taxRate : 0;
+  
+  const hasRefund = refund > 0;
+  
+  // 🔥 FIXED RETURN HANDLING (USES REAL INPUTS)
+  if (hasRefund || s.sold < 0) {
+    const revenue = (+s.sold || 0);
+    const cogs = (+s.cogs || 0);
+    const shipping = (+s.shipping || 0);
+    const fees = (+s.txfee || 0) + (+s.adfee || 0) + (+s.otherfee || 0);
+  
+    const totalCosts = cogs + shipping + fees;
+    const profit = revenue - totalCosts;
+  
+    return {
+      sold,
+      salestax,
+      refund,
+      revenue,
+      netRevenue: revenue,
+      totalCosts,
+      profit,
+      margin: 0,
+      taxAside: 0,
+      netExCogs: profit,
+      hasRefund: true
+    };
 }
 
 function filterSales(f) {
