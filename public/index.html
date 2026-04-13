@@ -1190,22 +1190,34 @@ function ge(id)  { return document.getElementById(id); }
 function gv(id)  { return ge(id)?.value||''; }
 
 function calcSale(s) {
-  const sold=+s.sold||0, salestax=+s.salestax||0, refund=+s.refund||0;
-  // Gross revenue: for returns, only count what you actually kept (sold minus refund)
-  const revenue = sold - refund;
-  // Net revenue after sales tax and any refund issued to buyer
-  const netRevenue=sold-salestax-refund;
-  const totalCosts=(+s.cogs||0)+(+s.shipping||0)+(+s.txfee||0)+(+s.adfee||0)+(+s.otherfee||0);
-  const profit=netRevenue-totalCosts;
-  const margin=netRevenue>0?(profit/netRevenue)*100:0;
-  const taxRate=+ge('globalTaxRate').value/100;
-  const taxAside=profit>0?profit*taxRate:0;
-  // Net ex-COGS: cash result purely from the transaction (no sourcing cost factored in)
-  // = what you received minus what you gave back minus fees, but ignoring what you paid for the item
-  const feesOnly=(+s.shipping||0)+(+s.txfee||0)+(+s.adfee||0)+(+s.otherfee||0);
-  const netExCogs=netRevenue-feesOnly;
-  const hasRefund=refund>0;
-  return {sold,salestax,refund,revenue,netRevenue,totalCosts,profit,margin,taxAside,netExCogs,hasRefund};
+  const sold      = +s.sold      || 0;
+  const salestax  = +s.salestax  || 0;
+  const refund    = +s.refund    || 0;
+  const cogs      = +s.cogs      || 0;
+  const shipping  = +s.shipping  || 0;
+  const txfee     = +s.txfee     || 0;
+  const adfee     = +s.adfee     || 0;
+  const otherfee  = +s.otherfee  || 0;
+
+  // Revenue: what you actually kept after refund (sales tax is pass-through, not your income)
+  const revenue    = sold - refund;
+  // Net revenue: revenue minus sales tax collected (not your money to keep)
+  const netRevenue = revenue - salestax;
+  // All costs that come out of your pocket
+  const totalCosts = cogs + shipping + txfee + adfee + otherfee;
+  // Profit = net revenue minus everything you paid
+  const profit     = netRevenue - totalCosts;
+  // Margin: use netRevenue as base; if netRevenue <= 0 (full refund etc.), express as 0 to avoid meaningless ÷0
+  const margin     = netRevenue > 0 ? (profit / netRevenue) * 100 : (profit < 0 ? -100 : 0);
+  // Tax set-aside: only owe tax on positive profit
+  const taxRate    = +ge('globalTaxRate').value / 100;
+  const taxAside   = profit > 0 ? profit * taxRate : 0;
+  // Net ex-COGS: transaction result ignoring what you paid for the item (cash-flow view)
+  const feesOnly   = shipping + txfee + adfee + otherfee;
+  const netExCogs  = netRevenue - feesOnly;
+  const hasRefund  = refund > 0;
+
+  return {sold, salestax, refund, revenue, netRevenue, totalCosts, profit, margin, taxAside, netExCogs, hasRefund, cogs, shipping, txfee, adfee, otherfee, feesOnly};
 }
 
 function filterSales(f) {
@@ -1325,7 +1337,7 @@ function renderAnalytics() {
   const totalProfit=ac.reduce((a,c)=>a+c.profit,0);
   const totalRev=ac.reduce((a,c)=>a+c.revenue,0);
   const avgMargin=ac.reduce((a,c)=>a+c.margin,0)/ac.length;
-  const totalFees=ac.reduce((a,c)=>a+c.totalCosts,0);
+  const totalCostsAll=ac.reduce((a,c)=>a+c.totalCosts,0); // COGS + all fees
   const expTotal=expenses.reduce((a,e)=>a+(+e.amount||0),0);
   const winRate=ac.filter(s=>s.profit>0).length/ac.length*100;
   const avgProfitPerSale=ac.length?totalProfit/ac.length:0;
@@ -1358,8 +1370,9 @@ function renderAnalytics() {
       </div>
     </div>`;
 
-  const roi=totalFees>0?(totalProfit/totalFees*100):0;
-  const feePct=totalRev>0?(totalFees/totalRev*100):0;
+  const totalFeesOnly=ac.reduce((a,c)=>a+c.feesOnly,0);
+  const roi=totalFeesOnly>0?(totalProfit/totalFeesOnly*100):0;
+  const feePct=totalRev>0?(totalFeesOnly/totalRev*100):0;
   const bestSale=ac.reduce((a,b)=>b.profit>a.profit?b:a,ac[0]);
   const worstSale=ac.reduce((a,b)=>b.profit<a.profit?b:a,ac[0]);
   ge('kpiRow').innerHTML=[
@@ -1367,7 +1380,7 @@ function renderAnalytics() {
     ['Fee Ratio',feePct.toFixed(1)+'%',feePct<=20?'g':feePct<=35?'y':'r'],
     ['Best Sale','$'+bestSale.profit.toFixed(2),'g'],
     ['Worst Sale',(worstSale.profit>=0?'+$':'-$')+Math.abs(worstSale.profit).toFixed(2),worstSale.profit>=0?'g':'r'],
-    ['Total Fees Paid','$'+totalFees.toFixed(2),'r'],
+    ['Fees Paid (ex-COGS)','$'+totalFeesOnly.toFixed(2),'r'],
     ['Expenses','$'+expTotal.toFixed(2),'r'],
   ].map(([l,v,c])=>`<div class="kpi-card"><div class="kpi-lbl">${l}</div><div class="kpi-val ${c}">${v}</div></div>`).join('');
 
@@ -1436,7 +1449,7 @@ function renderHistory(){
   if(!filtered.length){ge('histBody').innerHTML='';ge('histEmpty').style.display='block';return;}
   ge('histEmpty').style.display='none';
   ge('histBody').innerHTML=filtered.map(s=>{
-    const c=calcSale(s),fees=(+s.txfee||0)+(+s.adfee||0)+(+s.otherfee||0);
+    const c=calcSale(s),fees=c.feesOnly; // shipping + txfee + adfee + otherfee (no COGS — COGS has its own column)
     const refundCell = c.refund>0
       ? `<td><span class="r fw">-$${c.refund.toFixed(2)}</span>${s.refundReason?`<div style="font-size:9px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:80px;" title="${s.refundReason}">${s.refundReason}</div>`:''}</td>`
       : `<td style="color:var(--text3);">—</td>`;
@@ -1529,7 +1542,7 @@ function renderTaxes(){
     <div class="owed-right"><div class="lbl">Net Taxable Profit</div><div class="val">$${net.toFixed(2)}</div><div style="font-size:10px;color:var(--text3);margin-top:2px;">Set aside $${owed.toFixed(2)}</div></div>
   </div>`;
   ge('taxIncome').innerHTML=`<div class="card-title">📈 Income Breakdown</div>
-    ${tr2('Gross Revenue (total sold)','$'+rev.toFixed(2))}
+    ${tr2('Gross Revenue (sold − refunds)','$'+rev.toFixed(2))}
     ${tr2('Sales Tax Collected (pass-through)','-$'+totalSalesTax.toFixed(2),'r')}
     ${tr2('COGS','-$'+cogs.toFixed(2),'r')}
     ${tr2('Shipping','-$'+ship.toFixed(2),'r')}
@@ -1542,9 +1555,20 @@ function renderTaxes(){
     <div class="div"></div>
     ${tr2('Net Taxable Profit','$'+net.toFixed(2),net>=0?'g':'r')}${tr2('Tax Rate',(rate*100).toFixed(1)+'%')}
     <div class="tax-total r"><span class="lbl r">Est. Tax Owed</span><span class="val r">$${owed.toFixed(2)}</span></div>`;
-  const q={Q1:0,Q2:0,Q3:0,Q4:0};
-  sales.forEach(s=>{const mo=new Date(s.date+'T12:00:00').getMonth(),p=calcSale(s).profit;if(mo<=2)q.Q1+=p;else if(mo<=5)q.Q2+=p;else if(mo<=8)q.Q3+=p;else q.Q4+=p;});
-  ge('taxQuarters').innerHTML=Object.entries(q).map(([name,p])=>{const t=p>0?p*rate:0;return`<div class="card"><div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.7px;margin-bottom:4px;">${name} Profit</div><div style="font-size:17px;font-weight:700;" class="${p>=0?'g':'r'}">${p>=0?'+':'-'}$${Math.abs(p).toFixed(2)}</div><div style="font-size:10px;color:var(--text3);margin-top:3px;">Tax: <span class="r fw">$${t.toFixed(2)}</span></div></div>`;}).join('');
+  // Quarterly: distribute expenses proportionally by profit share so Q totals reconcile with Tax Center
+  const q={Q1:{p:0,salesCount:0},Q2:{p:0,salesCount:0},Q3:{p:0,salesCount:0},Q4:{p:0,salesCount:0}};
+  sales.forEach(s=>{const mo=new Date(s.date+'T12:00:00').getMonth(),p=calcSale(s).profit;const qk=mo<=2?'Q1':mo<=5?'Q2':mo<=8?'Q3':'Q4';q[qk].p+=p;q[qk].salesCount++;});
+  // Deduct expenses from each quarter by proportion of total profit (positive quarters only)
+  const totalPositiveProfit=Object.values(q).reduce((a,v)=>a+(v.p>0?v.p:0),0);
+  ge('taxQuarters').innerHTML=Object.entries(q).map(([name,{p,salesCount}])=>{
+    const qExp=totalPositiveProfit>0&&p>0?(p/totalPositiveProfit)*expTotal:0;
+    const qNet=p-qExp;
+    const t=qNet>0?qNet*rate:0;
+    return`<div class="card"><div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.7px;margin-bottom:4px;">${name} · ${salesCount} sale${salesCount!==1?'s':''}</div>
+      <div style="font-size:17px;font-weight:700;" class="${p>=0?'g':'r'}">${p>=0?'+':'-'}$${Math.abs(p).toFixed(2)}</div>
+      <div style="font-size:10px;color:var(--text3);margin-top:3px;">After exp: <span class="${qNet>=0?'g':'r'} fw">${qNet>=0?'+':'-'}$${Math.abs(qNet).toFixed(2)}</span></div>
+      <div style="font-size:10px;color:var(--text3);">Est. Tax: <span class="r fw">$${t.toFixed(2)}</span></div></div>`;
+  }).join('');
 }
 
 // ═══════════════════════════════════════════
@@ -1600,8 +1624,19 @@ function renderSavings(){
 // ═══════════════════════════════════════════
 function exportCSV(){
   const rows=[
-    ['Date','Title','Platform','Sold For','COGS','Shipping','Sales Tax','eBay Fee','Ad Fee','Other Fee','Net Profit','Margin %','Tax Set-Aside','Photo Count'],
-    ...sales.map(s=>{const c=calcSale(s);return[s.date,s.title,s.platform,s.sold,s.cogs,s.shipping,s.salestax,s.txfee,s.adfee,s.otherfee,c.profit.toFixed(2),c.margin.toFixed(2),c.taxAside.toFixed(2),(s.photos||[]).length];})
+    ['Date','Title','Platform','Sold For','Refund','Net Revenue','COGS','Shipping','Sales Tax','eBay Fee','Ad Fee','Other Fee','Total Costs','Net Profit','Margin %','Tax Set-Aside','Photo Count'],
+    ...sales.map(s=>{
+      const c=calcSale(s);
+      return[
+        s.date, s.title, s.platform,
+        s.sold, c.refund, c.netRevenue.toFixed(2),
+        c.cogs, c.shipping, c.salestax,
+        c.txfee, c.adfee, c.otherfee,
+        c.totalCosts.toFixed(2),
+        c.profit.toFixed(2), c.margin.toFixed(2),
+        c.taxAside.toFixed(2), (s.photos||[]).length
+      ];
+    })
   ];
   const csv=rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
   const a=document.createElement('a');
