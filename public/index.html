@@ -1300,9 +1300,9 @@ function renderDashboard() {
   const ac=sales.map(s=>calcSale(s));
   const rev=ac.reduce((a,c)=>a+c.revenue,0);
   const profit=ac.reduce((a,c)=>a+c.profit,0);
-  const tax=ac.reduce((a,c)=>a+c.taxAside,0);
   const expTotal=expenses.reduce((a,e)=>a+(+e.amount||0),0);
   const net=profit-expTotal;
+  const tax=net>0?net*(tr/100):0;
   const avgM=ac.length?ac.reduce((a,c)=>a+c.margin,0)/ac.length:0;
 
   ge('statsGrid').innerHTML=`
