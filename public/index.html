@@ -437,6 +437,14 @@
           </select>
         </div>
       </div>
+      <!-- REFUND SECTION -->
+      <div style="background:var(--red-dim);border:1px solid rgba(140,74,74,0.2);border-radius:var(--r);padding:10px 12px;margin-bottom:8px;">
+        <div style="font-size:10px;font-weight:600;color:var(--red-light);text-transform:uppercase;letter-spacing:.7px;margin-bottom:8px;">↩ Refund Issued? (fill in only if buyer returned the item)</div>
+        <div class="form-grid fg2" style="margin-bottom:0;">
+          <div class="fgrp"><label>Refund Amount $</label><input type="number" id="f_refund" placeholder="0.00" step="0.01" min="0" oninput="calcLive()"></div>
+          <div class="fgrp"><label>Refund Reason</label><input type="text" id="f_refund_reason" placeholder="e.g. Item not as described"></div>
+        </div>
+      </div>
       <div class="div"></div>
       <div class="form-grid fg4">
         <div class="fgrp"><label>Sold For $</label><input type="number" id="f_sold" placeholder="0.00" step="0.01" min="0" oninput="calcLive()"></div>
@@ -1243,7 +1251,7 @@ function noData(){return`<div style="text-align:center;color:var(--text3);paddin
 // LIVE CALC
 // ═══════════════════════════════════════════
 function calcLive() {
-  const s={sold:gv('f_sold'),cogs:gv('f_cogs'),shipping:gv('f_shipping'),salestax:gv('f_salestax'),txfee:gv('f_txfee'),adfee:gv('f_adfee'),otherfee:gv('f_otherfee')};
+  const s={sold:gv('f_sold'),cogs:gv('f_cogs'),shipping:gv('f_shipping'),salestax:gv('f_salestax'),txfee:gv('f_txfee'),adfee:gv('f_adfee'),otherfee:gv('f_otherfee'),refund:gv('f_refund')};
   const c=calcSale(s);
   ge('cp_sold').textContent='$'+(+s.sold||0).toFixed(2);
   ge('cp_costs').textContent='$'+c.totalCosts.toFixed(2);
@@ -1265,13 +1273,14 @@ function submitSale() {
     sold:+gv('f_sold')||0,cogs:+gv('f_cogs')||0,shipping:+gv('f_shipping')||0,
     salestax:+gv('f_salestax')||0,txfee:+gv('f_txfee')||0,adfee:+gv('f_adfee')||0,
     otherfee:+gv('f_otherfee')||0,notes:gv('f_notes'),
+    refund:+gv('f_refund')||0,refundReason:gv('f_refund_reason'),
     photos: [...stagingPhotos.sale]
   });
   save();clearForm();toast('✓ Sale saved!');goTo('history');
 }
 
 function clearForm(){
-  ['f_title','f_sold','f_cogs','f_shipping','f_salestax','f_txfee','f_adfee','f_otherfee','f_notes'].forEach(id=>ge(id).value='');
+  ['f_title','f_sold','f_cogs','f_shipping','f_salestax','f_txfee','f_adfee','f_otherfee','f_notes','f_refund','f_refund_reason'].forEach(id=>ge(id).value='');
   ge('f_date').value=today();
   clearStagingPhotos('sale');
   calcLive();
