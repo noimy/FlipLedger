@@ -6,7 +6,85 @@
 <title>FlipLedger — eBay Reseller Accountant</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+CiAgPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTQiIGZpbGw9IiMxMzE2MWIiLz4KICA8cG9seWdvbiBwb2ludHM9IjMyLDEwIDU0LDIyIDU0LDQyIDMyLDU0IDEwLDQyIDEwLDIyIiBmaWxsPSIjMWQyMjI5IiBzdHJva2U9IiMzZDhjNmUiIHN0cm9rZS13aWR0aD0iMiIvPgogIDxwb2x5Z29uIHBvaW50cz0iMzIsMTAgNTQsMjIgMzIsMzQgMTAsMjIiIGZpbGw9IiMyNTJlMjgiIHN0cm9rZT0iIzRhOWY3ZSIgc3Ryb2tlLXdpZHRoPSIxLjUiLz4KICA8bGluZSB4MT0iMzIiIHkxPSIxMCIgeDI9IjMyIiB5Mj0iMzQiIHN0cm9rZT0iIzRhOWY3ZSIgc3Ryb2tlLXdpZHRoPSIxLjIiIHN0cm9rZS1kYXNoYXJyYXk9IjMsMiIgb3BhY2l0eT0iMC43Ii8+CiAgPGxpbmUgeDE9IjEwIiB5MT0iMjIiIHgyPSI1NCIgeTI9IjIyIiBzdHJva2U9IiM0YTlmN2UiIHN0cm9rZS13aWR0aD0iMS4yIiBzdHJva2UtZGFzaGFycmF5PSIzLDIiIG9wYWNpdHk9IjAuNyIvPgogIDxwb2x5Z29uIHBvaW50cz0iMTAsMjIgMzIsMzQgMzIsNTQgMTAsNDIiIGZpbGw9IiMxODFjMjIiIHN0cm9rZT0iIzNkOGM2ZSIgc3Ryb2tlLXdpZHRoPSIxLjUiLz4KICA8cG9seWdvbiBwb2ludHM9IjU0LDIyIDMyLDM0IDMyLDU0IDU0LDQyIiBmaWxsPSIjMWEyMzIwIiBzdHJva2U9IiMzZDhjNmUiIHN0cm9rZS13aWR0aD0iMS41Ii8+CiAgPHRleHQgeD0iMzIiIHk9IjQ3IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxOCIgZm9udC13ZWlnaHQ9IjkwMCIgZmlsbD0iIzRhOWY3ZSIgb3BhY2l0eT0iMC45NSI+JDwvdGV4dD4KPC9zdmc+Cg==">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
+  /* ── AUTH SCREEN ── */
+  #authScreen{
+    position:fixed;inset:0;z-index:9999;
+    background:var(--bg);
+    display:flex;align-items:center;justify-content:center;
+  }
+  #authScreen.hidden{display:none;}
+  .auth-box{
+    background:var(--surface);border:1px solid var(--border2);
+    border-radius:12px;padding:32px 28px;width:360px;
+    box-shadow:0 24px 80px rgba(0,0,0,0.6);
+  }
+  .auth-logo{font-size:14px;font-weight:700;color:var(--accent-light);margin-bottom:6px;}
+  .auth-sub{font-size:11px;color:var(--text3);margin-bottom:24px;}
+  .auth-tabs{display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:20px;}
+  .auth-tab{
+    flex:1;text-align:center;padding:8px;font-size:12px;font-weight:600;
+    cursor:pointer;border-bottom:2px solid transparent;color:var(--text3);
+    transition:all .12s;background:transparent;border-top:none;border-left:none;border-right:none;
+    font-family:var(--font);
+  }
+  .auth-tab.active{color:var(--accent-light);border-bottom-color:var(--accent);}
+  .auth-field{display:flex;flex-direction:column;gap:4px;margin-bottom:12px;}
+  .auth-field label{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.7px;}
+  .auth-field input{
+    background:var(--surface2);border:1px solid var(--border2);color:var(--text);
+    font-family:var(--font);font-size:13px;padding:8px 10px;border-radius:6px;outline:none;
+  }
+  .auth-field input:focus{border-color:var(--accent);}
+  .auth-btn{
+    width:100%;padding:10px;border-radius:6px;border:none;cursor:pointer;
+    background:var(--accent);color:#c8e8dd;font-family:var(--font);
+    font-size:13px;font-weight:700;margin-top:8px;transition:background .12s;
+  }
+  .auth-btn:hover{background:var(--accent-light);}
+  .auth-btn:disabled{opacity:.5;cursor:default;}
+  .auth-error{font-size:11px;color:var(--red-light);margin-top:8px;min-height:16px;text-align:center;}
+  .auth-divider{text-align:center;font-size:10px;color:var(--text3);margin:14px 0 10px;}
+  .auth-guest-btn{
+    width:100%;padding:8px;border-radius:6px;cursor:pointer;
+    background:transparent;border:1px solid var(--border2);color:var(--text3);
+    font-family:var(--font);font-size:12px;transition:all .12s;
+  }
+  .auth-guest-btn:hover{border-color:var(--text3);color:var(--text2);}
+  /* Loading overlay */
+  #loadingOverlay{
+    position:fixed;inset:0;z-index:9998;background:var(--bg);
+    display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;
+  }
+  #loadingOverlay.hidden{display:none;}
+  .loading-spinner{
+    width:28px;height:28px;border:3px solid var(--border2);
+    border-top-color:var(--accent);border-radius:50%;
+    animation:spin .7s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .loading-text{font-size:12px;color:var(--text3);}
+  /* User badge in topbar */
+  .user-badge{
+    display:flex;align-items:center;gap:6px;
+    padding:4px 10px;border-radius:5px;
+    background:var(--surface2);border:1px solid var(--border2);
+    font-size:11px;color:var(--text2);cursor:default;
+  }
+  .user-badge .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex-shrink:0;}
+  .sign-out-btn{
+    padding:4px 10px;border-radius:5px;border:1px solid var(--border2);
+    background:transparent;color:var(--text3);font-family:var(--font);
+    font-size:11px;cursor:pointer;transition:all .12s;
+  }
+  .sign-out-btn:hover{border-color:var(--red-light);color:var(--red-light);}
+  .sync-btn{
+    padding:4px 10px;border-radius:5px;border:1px solid var(--border2);
+    background:transparent;color:var(--text3);font-family:var(--font);
+    font-size:11px;cursor:pointer;transition:all .12s;
+  }
+  .sync-btn:hover{border-color:var(--accent);color:var(--accent-light);}
   :root {
     --bg:#0d0f12;--surface:#13161b;--surface2:#181c22;--surface3:#1d2229;
     --border:#222730;--border2:#282e3a;
@@ -321,6 +399,38 @@
 </head>
 <body>
 
+<!-- ═══ LOADING OVERLAY ═══ -->
+<div id="loadingOverlay">
+  <div class="loading-spinner"></div>
+  <div class="loading-text">Loading FlipLedger…</div>
+</div>
+
+<!-- ═══ AUTH SCREEN ═══ -->
+<div id="authScreen" class="hidden">
+  <div class="auth-box">
+    <div class="auth-logo">📦 FlipLedger</div>
+    <div class="auth-sub">eBay Reseller Accountant — your data, everywhere</div>
+    <div class="auth-tabs">
+      <button class="auth-tab active" id="tabLogin" onclick="switchAuthTab('login')">Sign In</button>
+      <button class="auth-tab" id="tabSignup" onclick="switchAuthTab('signup')">Create Account</button>
+    </div>
+    <div id="authLoginForm">
+      <div class="auth-field"><label>Email</label><input type="email" id="auth_email" placeholder="you@example.com" onkeydown="if(event.key==='Enter')doLogin()"></div>
+      <div class="auth-field"><label>Password</label><input type="password" id="auth_password" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin()"></div>
+      <button class="auth-btn" id="loginBtn" onclick="doLogin()">Sign In</button>
+    </div>
+    <div id="authSignupForm" style="display:none;">
+      <div class="auth-field"><label>Email</label><input type="email" id="auth_email2" placeholder="you@example.com" onkeydown="if(event.key==='Enter')doSignup()"></div>
+      <div class="auth-field"><label>Password</label><input type="password" id="auth_password2" placeholder="At least 6 characters" onkeydown="if(event.key==='Enter')doSignup()"></div>
+      <div class="auth-field"><label>Confirm Password</label><input type="password" id="auth_password3" placeholder="Repeat password" onkeydown="if(event.key==='Enter')doSignup()"></div>
+      <button class="auth-btn" id="signupBtn" onclick="doSignup()">Create Account</button>
+    </div>
+    <div class="auth-error" id="authError"></div>
+    <div class="auth-divider">or</div>
+    <button class="auth-guest-btn" onclick="useAsGuest()">Continue without account (device only)</button>
+  </div>
+</div>
+
 <!-- ═══ LIGHTBOX ═══ -->
 <div id="lightbox">
   <div class="lb-header">
@@ -375,6 +485,9 @@
       <div class="topbar-date" id="pageDate"></div>
     </div>
     <div class="topbar-actions">
+      <div class="user-badge" id="userBadge" style="display:none;"><div class="dot"></div><span id="userEmail" style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span></div>
+      <button class="sync-btn" id="syncBtn" style="display:none;" onclick="syncToSupabase(true)" title="Sync data to cloud">⟳ Sync</button>
+      <button class="sign-out-btn" id="signOutBtn" style="display:none;" onclick="doSignOut()">Sign Out</button>
       <button class="btn btn-ghost" onclick="exportCSV()">↓ CSV</button>
       <button class="btn btn-ghost" onclick="openImportModal()">↑ Import</button>
       <button class="btn btn-ghost" onclick="exportBackup()">↓ Backup</button>
@@ -819,6 +932,16 @@
 
 <script>
 // ═══════════════════════════════════════════
+// SUPABASE CONFIG — paste your values here
+// ═══════════════════════════════════════════
+const SUPA_URL  = 'https://uacozrldoipvurjrtipd.supabase.co';   // e.g. https://abcxyz.supabase.co
+const SUPA_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVhY296cmxkb2lwdnVyanJ0aXBkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYwMjkxMDUsImV4cCI6MjA5MTYwNTEwNX0.zxQx4_5YTZKzRae8N1V2rQOBiZbCVDoSEKlNDhFi75I';
+
+const supa = supabase.createClient(SUPA_URL, SUPA_KEY);
+let currentUser = null;
+let guestMode   = false;
+
+// ═══════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════
 let sales    = JSON.parse(localStorage.getItem('fl_sales')    || '[]');
@@ -829,10 +952,12 @@ let histFilter = 'all';
 // Temp staging photos before a record is saved
 let stagingPhotos = { sale: [], expense: [] };
 
+// ── save(): writes to localStorage immediately, then syncs to Supabase if logged in
 function save() {
   localStorage.setItem('fl_sales',    JSON.stringify(sales));
   localStorage.setItem('fl_expenses', JSON.stringify(expenses));
   localStorage.setItem('fl_deposits', JSON.stringify(deposits));
+  if(currentUser && !guestMode) syncToSupabase(false);
 }
 
 // ═══════════════════════════════════════════
@@ -2134,13 +2259,212 @@ function toast(msg){
 }
 
 // ═══════════════════════════════════════════
-// INIT
+// SUPABASE — Auth UI helpers
 // ═══════════════════════════════════════════
-ge('f_date').value=today();
-ge('e_date').value=today();
-ge('dep_date').value=today();
-ge('pageDate').textContent=new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
-renderDashboard();
+function switchAuthTab(tab) {
+  ge('tabLogin').classList.toggle('active',    tab==='login');
+  ge('tabSignup').classList.toggle('active',   tab==='signup');
+  ge('authLoginForm').style.display  = tab==='login'  ? 'block' : 'none';
+  ge('authSignupForm').style.display = tab==='signup' ? 'block' : 'none';
+  ge('authError').textContent = '';
+}
+
+function setAuthError(msg) { ge('authError').textContent = msg; }
+function setAuthBusy(busy) {
+  ['loginBtn','signupBtn'].forEach(id=>{ const el=ge(id); if(el) el.disabled=busy; });
+}
+
+async function doLogin() {
+  const email    = ge('auth_email').value.trim();
+  const password = ge('auth_password').value;
+  if(!email||!password) return setAuthError('Enter email and password.');
+  setAuthBusy(true); setAuthError('');
+  const {error} = await supa.auth.signInWithPassword({email, password});
+  setAuthBusy(false);
+  if(error) setAuthError(error.message);
+}
+
+async function doSignup() {
+  const email = ge('auth_email2').value.trim();
+  const pw1   = ge('auth_password2').value;
+  const pw2   = ge('auth_password3').value;
+  if(!email||!pw1) return setAuthError('Enter email and password.');
+  if(pw1 !== pw2)  return setAuthError('Passwords do not match.');
+  if(pw1.length<6) return setAuthError('Password must be at least 6 characters.');
+  setAuthBusy(true); setAuthError('');
+  const {error} = await supa.auth.signUp({email, password:pw1});
+  setAuthBusy(false);
+  if(error) { setAuthError(error.message); return; }
+  setAuthError('✓ Check your email to confirm your account, then sign in.');
+  switchAuthTab('login');
+}
+
+async function doSignOut() {
+  if(!confirm('Sign out? Your data is saved in the cloud.')) return;
+  await supa.auth.signOut();
+  currentUser = null;
+  // Clear local state
+  sales=[]; expenses=[]; deposits=[];
+  localStorage.removeItem('fl_sales');
+  localStorage.removeItem('fl_expenses');
+  localStorage.removeItem('fl_deposits');
+  showAuthScreen();
+}
+
+function useAsGuest() {
+  guestMode = true;
+  ge('authScreen').classList.add('hidden');
+  ge('userBadge').style.display   = 'none';
+  ge('syncBtn').style.display     = 'none';
+  ge('signOutBtn').style.display  = 'none';
+  initApp();
+}
+
+function showAuthScreen() {
+  ge('authScreen').classList.remove('hidden');
+  ge('loadingOverlay').classList.add('hidden');
+  ge('userBadge').style.display  = 'none';
+  ge('syncBtn').style.display    = 'none';
+  ge('signOutBtn').style.display = 'none';
+}
+
+function showApp(user) {
+  currentUser = user;
+  ge('authScreen').classList.add('hidden');
+  ge('loadingOverlay').classList.add('hidden');
+  ge('userBadge').style.display  = 'flex';
+  ge('syncBtn').style.display    = 'inline-block';
+  ge('signOutBtn').style.display = 'inline-block';
+  ge('userEmail').textContent    = user.email;
+}
+
+// ═══════════════════════════════════════════
+// SUPABASE — Data sync
+// Table schema (run once in Supabase SQL editor):
+//
+//   create table if not exists user_data (
+//     id         uuid primary key default gen_random_uuid(),
+//     user_id    uuid references auth.users(id) on delete cascade not null unique,
+//     sales      jsonb default '[]',
+//     expenses   jsonb default '[]',
+//     deposits   jsonb default '[]',
+//     updated_at timestamptz default now()
+//   );
+//   alter table user_data enable row level security;
+//   create policy "Users can manage own data" on user_data
+//     for all using (auth.uid() = user_id);
+//
+// ═══════════════════════════════════════════
+let syncTimer = null;
+
+async function syncToSupabase(manual=false) {
+  if(!currentUser || guestMode) return;
+
+  // Debounce auto-saves — only flush immediately on manual sync
+  if(!manual) {
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(()=>_doSync(), 2000);
+    return;
+  }
+  await _doSync(true);
+}
+
+async function _doSync(showFeedback=false) {
+  if(!currentUser) return;
+  const btn = ge('syncBtn');
+  if(btn) { btn.textContent='⟳ Syncing…'; btn.disabled=true; }
+
+  const payload = {
+    user_id  : currentUser.id,
+    sales    : sales,
+    expenses : expenses,
+    deposits : deposits,
+    updated_at: new Date().toISOString()
+  };
+
+  const {error} = await supa
+    .from('user_data')
+    .upsert(payload, {onConflict:'user_id'});
+
+  if(btn) { btn.textContent='⟳ Sync'; btn.disabled=false; }
+
+  if(error) {
+    console.error('Supabase sync error:', error.message);
+    if(showFeedback) toast('✕ Sync failed: '+error.message);
+  } else {
+    if(showFeedback) toast('✓ Synced to cloud!');
+  }
+}
+
+async function loadFromSupabase() {
+  if(!currentUser) return false;
+  const {data, error} = await supa
+    .from('user_data')
+    .select('sales, expenses, deposits')
+    .eq('user_id', currentUser.id)
+    .single();
+
+  if(error && error.code !== 'PGRST116') { // PGRST116 = no row yet (new user)
+    console.error('Load error:', error.message);
+    return false;
+  }
+
+  if(data) {
+    sales    = data.sales    || [];
+    expenses = data.expenses || [];
+    deposits = data.deposits || [];
+    localStorage.setItem('fl_sales',    JSON.stringify(sales));
+    localStorage.setItem('fl_expenses', JSON.stringify(expenses));
+    localStorage.setItem('fl_deposits', JSON.stringify(deposits));
+  }
+  return true;
+}
+
+// ═══════════════════════════════════════════
+// APP INIT (called after auth confirmed)
+// ═══════════════════════════════════════════
+function initApp() {
+  ge('f_date').value=today();
+  ge('e_date').value=today();
+  ge('dep_date').value=today();
+  ge('pageDate').textContent=new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+  renderDashboard();
+}
+
+// ═══════════════════════════════════════════
+// STARTUP — check session, show auth or app
+// ═══════════════════════════════════════════
+(async function startup() {
+  // Listen for auth state changes (handles login, logout, token refresh)
+  supa.auth.onAuthStateChange(async (event, session) => {
+    if(event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+      if(!currentUser) { // First sign-in this session
+        ge('loadingOverlay').classList.remove('hidden');
+        ge('authScreen').classList.add('hidden');
+        ge('loadingOverlay').querySelector('.loading-text').textContent = 'Loading your data…';
+        await loadFromSupabase();
+        showApp(session.user);
+        initApp();
+      }
+    } else if(event === 'SIGNED_OUT') {
+      showAuthScreen();
+    }
+  });
+
+  // Check for existing session
+  const {data:{session}} = await supa.auth.getSession();
+  if(session) {
+    ge('loadingOverlay').querySelector('.loading-text').textContent = 'Loading your data…';
+    currentUser = session.user;
+    await loadFromSupabase();
+    showApp(session.user);
+    initApp();
+  } else {
+    // No session — show auth screen
+    ge('loadingOverlay').classList.add('hidden');
+    ge('authScreen').classList.remove('hidden');
+  }
+})();
 </script>
 </body>
 </html>
