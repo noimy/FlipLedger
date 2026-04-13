@@ -1023,8 +1023,10 @@ function saveEditSale() {
     adfee    : +ge('es_adfee').value    || 0,
     otherfee : +ge('es_otherfee').value || 0,
     notes    : ge('es_notes').value,
-    refund       : +ge('es_refund').value        || 0,
-    refundReason :  ge('es_refund_reason').value || '',
+    refund   : (+ge('es_sold').value || 0) < 0
+      ? Math.abs(+ge('es_sold').value || 0)
+      : (+ge('es_refund').value || 0),
+    refundReason : ge('es_refund_reason').value || '',
     photos   : [...editSalePhotos]
   };
   save();
@@ -1202,10 +1204,43 @@ function calcSale(s) {
   const taxAside=profit>0?profit*taxRate:0;
   // Net ex-COGS: cash result purely from the transaction (no sourcing cost factored in)
   // = what you received minus what you gave back minus fees, but ignoring what you paid for the item
-  const feesOnly=(+s.shipping||0)+(+s.txfee||0)+(+s.adfee||0)+(+s.otherfee||0);
-  const netExCogs=netRevenue-feesOnly;
-  const hasRefund=refund>0;
-  return {sold,salestax,refund,revenue,netRevenue,totalCosts,profit,margin,taxAside,netExCogs,hasRefund};
+const revenue = (+s.sold || 0);
+const cogs = (+s.cogs || 0);
+const shipping = (+s.shipping || 0);
+const fees = (+s.txfee || 0) + (+s.adfee || 0) + (+s.otherfee || 0);
+
+const totalCosts = cogs + shipping + fees;
+const profit = revenue - totalCosts;
+const margin = revenue ? (profit / revenue) * 100 : 0;
+
+const taxRate = +ge('globalTaxRate').value / 100;
+const taxAside = profit > 0 ? profit * taxRate : 0;
+
+const hasRefund = refund > 0;
+
+// 🔥 FIXED RETURN HANDLING (USES REAL INPUTS)
+if (hasRefund || s.sold < 0) {
+  const revenue = (+s.sold || 0);
+  const cogs = (+s.cogs || 0);
+  const shipping = (+s.shipping || 0);
+  const fees = (+s.txfee || 0) + (+s.adfee || 0) + (+s.otherfee || 0);
+
+  const totalCosts = cogs + shipping + fees;
+  const profit = revenue - totalCosts;
+
+  return {
+    sold,
+    salestax,
+    refund,
+    revenue,
+    netRevenue: revenue,
+    totalCosts,
+    profit,
+    margin: 0,
+    taxAside: 0,
+    netExCogs: profit,
+    hasRefund: true
+  };
 }
 
 function filterSales(f) {
@@ -1250,9 +1285,15 @@ function submitSale() {
   if(!sold||sold<=0) return alert('Please enter a valid sale price.');
   sales.unshift({
     id:Date.now(),title,date,platform:gv('f_platform'),
-    sold:+gv('f_sold')||0,cogs:+gv('f_cogs')||0,shipping:+gv('f_shipping')||0,
-    salestax:+gv('f_salestax')||0,txfee:+gv('f_txfee')||0,adfee:+gv('f_adfee')||0,
-    otherfee:+gv('f_otherfee')||0,notes:gv('f_notes'),
+    sold:+gv('f_sold')||0,
+    refund:(+gv('f_sold')||0)<0 ? Math.abs(+gv('f_sold')||0) : 0,
+    cogs:+gv('f_cogs')||0,
+    shipping:+gv('f_shipping')||0,
+    salestax:+gv('f_salestax')||0,
+    txfee:+gv('f_txfee')||0,
+    adfee:+gv('f_adfee')||0,
+    otherfee:+gv('f_otherfee')||0,
+    notes:gv('f_notes'),
     photos: [...stagingPhotos.sale]
   });
   save();clearForm();toast('✓ Sale saved!');goTo('history');
@@ -1300,12 +1341,17 @@ function renderDashboard() {
       </tr>`).join('')}</tbody></table>`;
 
   const monthly={};
-  sales.forEach(s=>{const k=s.date.slice(0,7);monthly[k]=(monthly[k]||0)+calcSale(s).profit;});
+  sales.forEach(s=>{
+    const k = s.date.slice(0,7);
+    const c = calcSale(s);
+    monthly[k] = (monthly[k] || 0) + c.profit;
+  });
   const months=Object.keys(monthly).sort().slice(-6);
   ge('monthlyChart').innerHTML=months.length===0
     ?`<div style="text-align:center;color:var(--text3);padding:18px 0;font-size:11px;">Add sales to see chart</div>`
     :months.map(m=>{
-        const v=monthly[m],mx=Math.max(...months.map(k=>Math.abs(monthly[k])),1);
+        const v = monthly[m];
+        const mx = Math.max(...months.map(k => Math.abs(monthly[k] || 0)), 1);
         const w=Math.abs(v)/mx*100,color=v>=0?'var(--accent)':'var(--red)';
         const lbl=new Date(m+'-15').toLocaleDateString('en-US',{month:'short',year:'2-digit'});
         return`<div class="bar-row"><div class="bar-lbl">${lbl}</div><div class="bar-track"><div class="bar-fill" style="width:${w}%;background:${color};color:#0d0f12;">${v>=0?'+':'-'}$${Math.abs(v).toFixed(0)}</div></div></div>`;
@@ -1543,7 +1589,18 @@ function renderTaxes(){
     ${tr2('Net Taxable Profit','$'+net.toFixed(2),net>=0?'g':'r')}${tr2('Tax Rate',(rate*100).toFixed(1)+'%')}
     <div class="tax-total r"><span class="lbl r">Est. Tax Owed</span><span class="val r">$${owed.toFixed(2)}</span></div>`;
   const q={Q1:0,Q2:0,Q3:0,Q4:0};
-  sales.forEach(s=>{const mo=new Date(s.date+'T12:00:00').getMonth(),p=calcSale(s).profit;if(mo<=2)q.Q1+=p;else if(mo<=5)q.Q2+=p;else if(mo<=8)q.Q3+=p;else q.Q4+=p;});
+sales.forEach(s => {
+  const mo = new Date(s.date + 'T12:00:00').getMonth();
+  const c = calcSale(s);
+
+  // skip broken values
+  if (typeof c.profit !== 'number' || isNaN(c.profit)) return;
+
+  if (mo <= 2) q.Q1 += c.profit;
+  else if (mo <= 5) q.Q2 += c.profit;
+  else if (mo <= 8) q.Q3 += c.profit;
+  else q.Q4 += c.profit;
+});
   ge('taxQuarters').innerHTML=Object.entries(q).map(([name,p])=>{const t=p>0?p*rate:0;return`<div class="card"><div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.7px;margin-bottom:4px;">${name} Profit</div><div style="font-size:17px;font-weight:700;" class="${p>=0?'g':'r'}">${p>=0?'+':'-'}$${Math.abs(p).toFixed(2)}</div><div style="font-size:10px;color:var(--text3);margin-top:3px;">Tax: <span class="r fw">$${t.toFixed(2)}</span></div></div>`;}).join('');
 }
 
@@ -1875,6 +1932,7 @@ function readEbayCsv(input) {
 
       // Parse money string like "$12.50" or "12.50" → number
       const money = v => parseFloat(String(v||'0').replace(/[^0-9.\-]/g,''))||0;
+     
 
       // Parse date — eBay uses formats like "Jan-15-24", "01/15/2024", "2024-01-15"
       const parseDate = raw => {
