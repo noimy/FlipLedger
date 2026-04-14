@@ -2767,11 +2767,17 @@ function showApp(user) {
 //     sales      jsonb default '[]',
 //     expenses   jsonb default '[]',
 //     deposits   jsonb default '[]',
+//     inventory  jsonb default '[]',
+//     invlog     jsonb default '[]',
 //     updated_at timestamptz default now()
 //   );
 //   alter table user_data enable row level security;
 //   create policy "Users can manage own data" on user_data
 //     for all using (auth.uid() = user_id);
+//
+//   -- If table already exists, add missing columns:
+//   alter table user_data add column if not exists inventory jsonb default '[]';
+//   alter table user_data add column if not exists invlog    jsonb default '[]';
 //
 // ═══════════════════════════════════════════
 let syncTimer = null;
