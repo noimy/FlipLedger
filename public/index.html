@@ -1391,6 +1391,7 @@ ge('editExpenseModal').addEventListener('click', function(e){ if(e.target===this
 // Escape key closes modals (lightbox escape is handled in its own listener)
 document.addEventListener('keydown', ev => {
   if(ev.key !== 'Escape') return;
+  if(ge('editInvModal').classList.contains('open'))      { closeEditInv();        return; }
   if(ge('ebayModal').classList.contains('open'))        { closeEbayModal();      return; }
   if(ge('editDepositModal').classList.contains('open')) { closeEditDeposit();    return; }
   if(ge('importModal').classList.contains('open'))      { closeImportModal();    return; }
@@ -2622,6 +2623,7 @@ function populateInvDropdowns() {
 // ═══════════════════════════════════════════
 // TOAST
 // ═══════════════════════════════════════════
+function toast(msg) {
   const t=document.createElement('div');t.textContent=msg;
   t.style.cssText='position:fixed;bottom:16px;right:16px;background:var(--accent);color:#0d0f12;font-family:var(--font);font-weight:700;font-size:12px;padding:7px 13px;border-radius:5px;z-index:999;';
   document.body.appendChild(t);setTimeout(()=>t.remove(),2000);
@@ -2673,10 +2675,12 @@ async function doSignOut() {
   await supa.auth.signOut();
   currentUser = null;
   // Clear local state
-  sales=[]; expenses=[]; deposits=[];
+  sales=[]; expenses=[]; deposits=[]; inventory=[]; invLog=[];
   localStorage.removeItem('fl_sales');
   localStorage.removeItem('fl_expenses');
   localStorage.removeItem('fl_deposits');
+  localStorage.removeItem('fl_inventory');
+  localStorage.removeItem('fl_invlog');
   showAuthScreen();
 }
 
