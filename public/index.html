@@ -395,6 +395,20 @@
 
   /* ── SCROLLBAR ── */
   ::-webkit-scrollbar{width:4px;}::-webkit-scrollbar-track{background:var(--surface);}::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px;}
+
+  /* ── INVENTORY ── */
+  .inv-stock-badge{display:inline-flex;align-items:center;padding:2px 7px;border-radius:12px;font-size:10px;font-weight:700;}
+  .inv-stock-ok{background:var(--accent-dim);color:var(--accent-light);}
+  .inv-stock-low{background:var(--yellow-dim);color:var(--yellow-light);}
+  .inv-stock-zero{background:var(--red-dim);color:var(--red-light);}
+  .inv-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px;}
+  .inv-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:10px 12px;display:flex;flex-direction:column;gap:4px;}
+  .inv-card-name{font-size:12px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .inv-card-sku{font-size:9px;color:var(--text3);}
+  .inv-card-row{display:flex;align-items:center;justify-content:space-between;margin-top:4px;}
+  .inv-card-stock{font-size:18px;font-weight:700;}
+  .inv-card-cost{font-size:10px;color:var(--text3);}
+  .inv-card-actions{display:flex;gap:4px;margin-top:6px;}
 </style>
 </head>
 <body>
@@ -462,6 +476,7 @@
     <div class="nav-item" onclick="goTo('sales')"><span class="nav-icon">+</span> Add Sale</div>
     <div class="nav-item" onclick="goTo('history')"><span class="nav-icon">≡</span> Sale History</div>
     <div class="nav-item" onclick="goTo('expenses')"><span class="nav-icon">◫</span> Expenses</div>
+    <div class="nav-item" onclick="goTo('inventory')"><span class="nav-icon">📦</span> Inventory</div>
     <div class="nav-section">Taxes</div>
     <div class="nav-item" onclick="goTo('taxes')"><span class="nav-icon">◈</span> Tax Center</div>
     <div class="nav-item" onclick="goTo('savings')"><span class="nav-icon">🏦</span> Tax Savings</div>
@@ -559,6 +574,13 @@
         </div>
       </div>
       <div class="div"></div>
+      <div class="form-grid fg4">
+        <div class="fgrp span2"><label>Link to Inventory Item <span style="color:var(--text3);font-size:9px;">(optional — auto-decrements stock)</span></label>
+          <select id="f_inv_item" onchange="onInvItemSelect('f')"><option value="">— No inventory link —</option></select>
+        </div>
+        <div class="fgrp"><label>Quantity Sold</label><input type="number" id="f_inv_qty" placeholder="1" min="1" max="9999" step="1" value="1" oninput="calcLive()"></div>
+        <div class="fgrp" id="f_inv_stock_wrap" style="display:none;"><label>Stock After Sale</label><div id="f_inv_stock_preview" style="font-size:13px;font-weight:700;padding-top:6px;color:var(--text3);">—</div></div>
+      </div>
       <div class="form-grid fg4">
         <div class="fgrp"><label>Sold For $</label><input type="number" id="f_sold" placeholder="0.00" step="0.01" min="0" oninput="calcLive()"></div>
         <div class="fgrp"><label>Product Cost (COGS) $</label><input type="number" id="f_cogs" placeholder="0.00" step="0.01" min="0" oninput="calcLive()"></div>
@@ -683,6 +705,54 @@
       <table><thead><tr><th>Date</th><th>Note</th><th>Amount</th><th>Running Total</th><th></th></tr></thead>
       <tbody id="depBody"></tbody></table>
       <div id="depEmpty"><div class="empty"><div class="empty-icon">🏦</div><div class="empty-title">No deposits yet</div><div>Record money you've set aside for taxes</div></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ INVENTORY PAGE ═══ -->
+<div id="page-inventory" class="page">
+  <div class="sec">Add Inventory Item</div>
+  <div class="card">
+    <div class="form-grid fg4">
+      <div class="fgrp span2"><label>Item Name *</label><input type="text" id="inv_name" placeholder="e.g. AirPods 2nd Gen" maxlength="200"></div>
+      <div class="fgrp"><label>SKU / Code</label><input type="text" id="inv_sku" placeholder="Optional" maxlength="80"></div>
+      <div class="fgrp"><label>Initial Stock *</label><input type="number" id="inv_stock" placeholder="0" min="0" max="99999" step="1"></div>
+      <div class="fgrp"><label>Unit Cost (COGS) $</label><input type="number" id="inv_cost" placeholder="0.00" step="0.01" min="0" max="999999"></div>
+      <div class="fgrp span3"><label>Notes</label><input type="text" id="inv_notes" placeholder="Optional" maxlength="300"></div>
+    </div>
+    <div class="form-footer"><button class="btn btn-primary" onclick="addInventoryItem()">+ Add Item</button></div>
+  </div>
+  <div class="sec">Inventory Items</div>
+  <div id="invGrid" class="inv-grid"></div>
+  <div id="invEmpty" style="display:none;"><div class="empty"><div class="empty-icon">📦</div><div class="empty-title">No inventory items yet</div><div>Add items above to track stock</div></div></div>
+  <div class="sec">Stock Movement Log</div>
+  <div class="tbl-wrap">
+    <table><thead><tr><th>Date</th><th>Item</th><th>Change</th><th>Reason</th><th>Stock After</th></tr></thead>
+    <tbody id="invLogBody"></tbody></table>
+    <div id="invLogEmpty"><div class="empty"><div class="empty-icon">📋</div><div class="empty-title">No movements yet</div><div>Stock changes appear here when sales are added or deleted</div></div></div>
+  </div>
+</div>
+
+<!-- ═══ EDIT INVENTORY MODAL ═══ -->
+<div class="modal-overlay" id="editInvModal">
+  <div class="modal" style="width:460px;">
+    <div class="modal-header">
+      <div class="modal-title">✏️ Edit Inventory Item</div>
+      <button class="modal-close" onclick="closeEditInv()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid fg2">
+        <div class="fgrp span2"><label>Item Name *</label><input type="text" id="ei_name" maxlength="200"></div>
+        <div class="fgrp"><label>SKU / Code</label><input type="text" id="ei_sku" maxlength="80"></div>
+        <div class="fgrp"><label>Unit Cost (COGS) $</label><input type="number" id="ei_cost" step="0.01" min="0" max="999999"></div>
+        <div class="fgrp"><label>Adjust Stock</label><input type="number" id="ei_adjust" placeholder="e.g. +5 or -2" step="1"></div>
+        <div class="fgrp"><label>Adjust Reason</label><input type="text" id="ei_adjust_reason" placeholder="e.g. Restock, damage..." maxlength="150"></div>
+        <div class="fgrp span2"><label>Notes</label><input type="text" id="ei_notes" maxlength="300"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeEditInv()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveEditInv()">✓ Save Changes</button>
     </div>
   </div>
 </div>
@@ -860,8 +930,13 @@
         </div>
       </div>
       <div class="div"></div>
+      <div class="form-grid fg4" style="margin-bottom:8px;">
+        <div class="fgrp span2"><label>Inventory Item <span style="color:var(--text3);font-size:9px;">(optional)</span></label>
+          <select id="es_inv_item" onchange="onInvItemSelect('es')"><option value="">— No inventory link —</option></select>
+        </div>
+        <div class="fgrp"><label>Quantity Sold</label><input type="number" id="es_inv_qty" placeholder="1" min="1" max="9999" step="1" value="1"></div>
+      </div>
       <div class="form-grid fg4">
-        <div class="fgrp"><label>Sold For $</label><input type="number" id="es_sold" step="0.01" min="0" oninput="calcEditLive()"></div>
         <div class="fgrp"><label>Product Cost (COGS) $</label><input type="number" id="es_cogs" step="0.01" min="0" oninput="calcEditLive()"></div>
         <div class="fgrp"><label>Shipping Cost $</label><input type="number" id="es_shipping" step="0.01" min="0" oninput="calcEditLive()"></div>
         <div class="fgrp"><label>Sales Tax Collected $</label><input type="number" id="es_salestax" step="0.01" min="0" oninput="calcEditLive()"></div>
@@ -934,8 +1009,8 @@
 // ═══════════════════════════════════════════
 // SUPABASE CONFIG — paste your values here
 // ═══════════════════════════════════════════
-const SUPA_URL  = 'https://uacozrldoipvurjrtipd.supabase.co';   // e.g. https://abcxyz.supabase.co
-const SUPA_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVhY296cmxkb2lwdnVyanJ0aXBkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYwMjkxMDUsImV4cCI6MjA5MTYwNTEwNX0.zxQx4_5YTZKzRae8N1V2rQOBiZbCVDoSEKlNDhFi75I';
+const SUPA_URL  = 'YOUR_SUPABASE_URL';   // e.g. https://abcxyz.supabase.co
+const SUPA_KEY  = 'YOUR_SUPABASE_ANON_KEY';
 
 const supa = supabase.createClient(SUPA_URL, SUPA_KEY);
 let currentUser = null;
@@ -944,19 +1019,35 @@ let guestMode   = false;
 // ═══════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════
-let sales    = JSON.parse(localStorage.getItem('fl_sales')    || '[]');
-let expenses = JSON.parse(localStorage.getItem('fl_expenses') || '[]');
-let deposits = JSON.parse(localStorage.getItem('fl_deposits') || '[]');
+let sales     = JSON.parse(localStorage.getItem('fl_sales')     || '[]');
+let expenses  = JSON.parse(localStorage.getItem('fl_expenses')  || '[]');
+let deposits  = JSON.parse(localStorage.getItem('fl_deposits')  || '[]');
+let inventory = JSON.parse(localStorage.getItem('fl_inventory') || '[]');
+let invLog    = JSON.parse(localStorage.getItem('fl_invlog')    || '[]');
 let histFilter = 'all';
+
+// ── Security: strip HTML/script from any user text input
+function sanitizeText(str) {
+  if(typeof str !== 'string') return '';
+  return str
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#x27;').replace(/`/g,'&#x60;');
+}
+// ── Clamp a string to maxLen characters
+function clampStr(str, maxLen) {
+  return String(str || '').slice(0, maxLen);
+}
 
 // Temp staging photos before a record is saved
 let stagingPhotos = { sale: [], expense: [] };
 
 // ── save(): writes to localStorage immediately, then syncs to Supabase if logged in
 function save() {
-  localStorage.setItem('fl_sales',    JSON.stringify(sales));
-  localStorage.setItem('fl_expenses', JSON.stringify(expenses));
-  localStorage.setItem('fl_deposits', JSON.stringify(deposits));
+  localStorage.setItem('fl_sales',     JSON.stringify(sales));
+  localStorage.setItem('fl_expenses',  JSON.stringify(expenses));
+  localStorage.setItem('fl_deposits',  JSON.stringify(deposits));
+  localStorage.setItem('fl_inventory', JSON.stringify(inventory));
+  localStorage.setItem('fl_invlog',    JSON.stringify(invLog));
   if(currentUser && !guestMode) syncToSupabase(false);
 }
 
@@ -1074,6 +1165,13 @@ function openEditSale(id) {
   ge('es_refund').value        = s.refund        || '';
   ge('es_refund_reason').value = s.refundReason  || '';
 
+  // Populate inventory dropdown and pre-select
+  populateInvDropdowns();
+  const invSel = ge('es_inv_item');
+  if(invSel && s.invItemId) invSel.value = String(s.invItemId);
+  const qtyEl = ge('es_inv_qty');
+  if(qtyEl) qtyEl.value = s.invQty||1;
+
   // set platform select
   const plat = ge('es_platform');
   for(let i=0;i<plat.options.length;i++) {
@@ -1135,31 +1233,58 @@ function removeEditSalePhoto(i) {
 }
 
 function saveEditSale() {
-  const title = ge('es_title').value.trim();
+  const title = clampStr(sanitizeText(ge('es_title').value.trim()), 200);
   const date  = ge('es_date').value;
   const sold  = parseFloat(ge('es_sold').value);
-  if(!title)       return alert('Please enter an item title.');
-  if(!date)        return alert('Please enter a sale date.');
+  if(!title)         return alert('Please enter an item title.');
+  if(!date)          return alert('Please enter a sale date.');
   if(!sold||sold<=0) return alert('Please enter a valid sale price.');
 
   const idx = sales.findIndex(x => x.id === editingSaleId);
   if(idx === -1) return;
+
+  const oldSale = sales[idx];
+
+  // Restore old inventory stock before applying new
+  if(oldSale.invItemId) restoreStockForSale(oldSale, 'Sale edited — restoring');
+
+  const newInvItemId = parseInt(ge('es_inv_item')?.value)||0;
+  const newInvQty    = Math.max(1, parseInt(ge('es_inv_qty')?.value)||1);
+
+  // Warn if new item would go negative
+  if(newInvItemId) {
+    const item = inventory.find(i=>i.id===newInvItemId);
+    if(item && (item.stock||0) < newInvQty) {
+      if(!confirm(`Only ${item.stock||0} in stock but you're selling ${newInvQty}. Continue anyway?`)) {
+        // Undo restore since we're cancelling
+        if(oldSale.invItemId) adjustStockForSale(oldSale, 'Edit cancelled — re-applying');
+        return;
+      }
+    }
+  }
+
   sales[idx] = {
-    ...sales[idx],
+    ...oldSale,
     title, date,
-    platform : ge('es_platform').value,
-    sold     : +ge('es_sold').value     || 0,
-    cogs     : +ge('es_cogs').value     || 0,
-    shipping : +ge('es_shipping').value || 0,
-    salestax : +ge('es_salestax').value || 0,
-    txfee    : +ge('es_txfee').value    || 0,
-    adfee    : +ge('es_adfee').value    || 0,
-    otherfee : +ge('es_otherfee').value || 0,
-    notes    : ge('es_notes').value,
-    refund       : +ge('es_refund').value        || 0,
-    refundReason :  ge('es_refund_reason').value || '',
-    photos   : [...editSalePhotos]
+    platform     : clampStr(ge('es_platform').value, 60),
+    sold         : Math.max(0, +ge('es_sold').value     || 0),
+    cogs         : Math.max(0, +ge('es_cogs').value     || 0),
+    shipping     : Math.max(0, +ge('es_shipping').value || 0),
+    salestax     : Math.max(0, +ge('es_salestax').value || 0),
+    txfee        : Math.max(0, +ge('es_txfee').value    || 0),
+    adfee        : Math.max(0, +ge('es_adfee').value    || 0),
+    otherfee     : Math.max(0, +ge('es_otherfee').value || 0),
+    notes        : clampStr(sanitizeText(ge('es_notes').value), 500),
+    refund       : Math.max(0, +ge('es_refund').value   || 0),
+    refundReason : clampStr(sanitizeText(ge('es_refund_reason').value), 200),
+    invItemId    : newInvItemId || null,
+    invQty       : newInvQty,
+    photos       : [...editSalePhotos]
   };
+
+  // Apply new inventory stock
+  if(newInvItemId) adjustStockForSale(sales[idx], 'Sale edited');
+
   save();
   closeEditSale();
   renderHistory();
@@ -1288,21 +1413,25 @@ function photosBtn(photos, label) {
 // ═══════════════════════════════════════════
 // NAV
 // ═══════════════════════════════════════════
-const titles   = {dashboard:'Dashboard',analytics:'Analytics',sales:'Add Sale',history:'Sale History',expenses:'Expenses',taxes:'Tax Center',savings:'Tax Savings'};
-const navPages = ['dashboard','analytics','sales','history','expenses','taxes','savings'];
+const titles   = {dashboard:'Dashboard',analytics:'Analytics',sales:'Add Sale',history:'Sale History',expenses:'Expenses',inventory:'Inventory',taxes:'Tax Center',savings:'Tax Savings'};
+const navPages = ['dashboard','analytics','sales','history','expenses','inventory','taxes','savings'];
 
 function goTo(page) {
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
-  ge('page-'+page).classList.add('active');
-  document.querySelectorAll('.nav-item')[navPages.indexOf(page)].classList.add('active');
-  ge('pageTitle').textContent = titles[page];
+  const pageEl = ge('page-'+page);
+  if(!pageEl) return;
+  pageEl.classList.add('active');
+  const navIdx = navPages.indexOf(page);
+  if(navIdx !== -1) document.querySelectorAll('.nav-item')[navIdx].classList.add('active');
+  ge('pageTitle').textContent = titles[page] || page;
   if(page==='dashboard') renderDashboard();
   if(page==='analytics') renderAnalytics();
   if(page==='history')   renderHistory();
   if(page==='expenses')  renderExpenses();
   if(page==='taxes')     renderTaxes();
   if(page==='savings')   renderSavings();
+  if(page==='inventory') renderInventory();
 }
 
 function refreshAll() {
@@ -1389,31 +1518,58 @@ function calcLive() {
 // SALE FORM
 // ═══════════════════════════════════════════
 function submitSale() {
-  const title=ge('f_title').value.trim(),date=ge('f_date').value,sold=parseFloat(ge('f_sold').value);
-  if(!title) return alert('Please enter an item title.');
-  if(!date)  return alert('Please enter a sale date.');
+  const title = clampStr(ge('f_title').value.trim(), 200);
+  const date  = ge('f_date').value;
+  const sold  = parseFloat(ge('f_sold').value);
+  if(!title)       return alert('Please enter an item title.');
+  if(!date)        return alert('Please enter a sale date.');
   if(!sold||sold<=0) return alert('Please enter a valid sale price.');
-  sales.unshift({
-    id:Date.now(),title,date,platform:gv('f_platform'),
-    sold:+gv('f_sold')||0,cogs:+gv('f_cogs')||0,shipping:+gv('f_shipping')||0,
-    salestax:+gv('f_salestax')||0,txfee:+gv('f_txfee')||0,adfee:+gv('f_adfee')||0,
-    otherfee:+gv('f_otherfee')||0,notes:gv('f_notes'),
-    refund:+gv('f_refund')||0,refundReason:gv('f_refund_reason'),
-    photos: [...stagingPhotos.sale]
-  });
-  save();clearForm();toast('✓ Sale saved!');goTo('history');
+
+  const invItemId = gv('f_inv_item') ? parseInt(gv('f_inv_item')) : null;
+  const invQty    = Math.max(1, parseInt(gv('f_inv_qty')) || 1);
+
+  // Check stock before saving
+  if(invItemId) {
+    const inv = inventory.find(i=>i.id===invItemId);
+    if(inv && inv.stock < invQty) {
+      if(!confirm(`⚠ Stock warning: only ${inv.stock} unit(s) available but you're recording ${invQty} sold. Save anyway?`)) return;
+    }
+  }
+
+  const newSale = {
+    id:Date.now(), title, date,
+    platform : clampStr(gv('f_platform'), 60),
+    sold     : +gv('f_sold')||0, cogs:+gv('f_cogs')||0,
+    shipping : +gv('f_shipping')||0, salestax:+gv('f_salestax')||0,
+    txfee    : +gv('f_txfee')||0, adfee:+gv('f_adfee')||0,
+    otherfee : +gv('f_otherfee')||0,
+    notes    : clampStr(gv('f_notes'), 500),
+    refund   : +gv('f_refund')||0,
+    refundReason: clampStr(gv('f_refund_reason'), 200),
+    photos   : [...stagingPhotos.sale],
+    invItemId, invQty
+  };
+  sales.unshift(newSale);
+  if(invItemId) adjustStockForSale(newSale, 'sale');
+  save(); clearForm(); toast('✓ Sale saved!'); goTo('history');
 }
 
 function clearForm(){
   ['f_title','f_sold','f_cogs','f_shipping','f_salestax','f_txfee','f_adfee','f_otherfee','f_notes','f_refund','f_refund_reason'].forEach(id=>ge(id).value='');
   ge('f_date').value=today();
+  ge('f_inv_item').value='';
+  ge('f_inv_qty').value='1';
+  ge('f_inv_stock_wrap').style.display='none';
   clearStagingPhotos('sale');
   calcLive();
 }
 
 function deleteSale(id){
   if(!confirm('Delete this sale?'))return;
-  sales=sales.filter(s=>s.id!==id);save();renderHistory();
+  const s = sales.find(x=>x.id===id);
+  if(s) restoreStockForSale(s, 'Sale deleted');
+  sales=sales.filter(s=>s.id!==id);
+  save();renderHistory();
   if(ge('page-dashboard').classList.contains('active'))renderDashboard();
 }
 
@@ -1786,12 +1942,10 @@ function exportCSV(){
 // ═══════════════════════════════════════════
 function exportBackup(){
   const backup = {
-    version   : 2,
+    version   : 3,
     exportedAt: new Date().toISOString(),
     taxRate   : ge('globalTaxRate').value,
-    sales,
-    expenses,
-    deposits
+    sales, expenses, deposits, inventory, invLog
   };
   const json = JSON.stringify(backup);
   const a = document.createElement('a');
@@ -1873,6 +2027,14 @@ function updateImportMode(){
 
 function confirmImport(){
   if(!importData) return;
+
+  // Strict structure validation
+  const isArr = v => Array.isArray(v);
+  if(!isArr(importData.sales) || !isArr(importData.expenses) || !isArr(importData.deposits)) {
+    alert('Invalid backup file — missing required data arrays.');
+    return;
+  }
+
   const mode = document.querySelector('input[name="importMode"]:checked')?.value || 'replace';
 
   if(mode === 'replace'){
@@ -1880,25 +2042,29 @@ function confirmImport(){
     if(totalExisting > 0){
       if(!confirm(`This will permanently replace all your current data (${sales.length} sales, ${expenses.length} expenses, ${deposits.length} deposits) with the backup. Are you sure?`)) return;
     }
-    sales    = importData.sales    || [];
-    expenses = importData.expenses || [];
-    deposits = importData.deposits || [];
+    sales     = importData.sales    || [];
+    expenses  = importData.expenses || [];
+    deposits  = importData.deposits || [];
+    inventory = isArr(importData.inventory) ? importData.inventory : [];
+    invLog    = isArr(importData.invLog)    ? importData.invLog    : [];
     if(importData.taxRate) ge('globalTaxRate').value = importData.taxRate;
   } else {
-    // Merge — add records whose IDs don't already exist
     const existingSaleIds    = new Set(sales.map(s=>s.id));
     const existingExpenseIds = new Set(expenses.map(e=>e.id));
     const existingDepositIds = new Set(deposits.map(d=>d.id));
+    const existingInvIds     = new Set(inventory.map(i=>i.id));
 
     const newSales    = (importData.sales    ||[]).filter(s=>!existingSaleIds.has(s.id));
     const newExpenses = (importData.expenses ||[]).filter(e=>!existingExpenseIds.has(e.id));
     const newDeposits = (importData.deposits ||[]).filter(d=>!existingDepositIds.has(d.id));
+    const newInv      = isArr(importData.inventory) ? importData.inventory.filter(i=>!existingInvIds.has(i.id)) : [];
 
-    sales    = [...sales,    ...newSales   ].sort((a,b)=>b.id-a.id);
-    expenses = [...expenses, ...newExpenses].sort((a,b)=>b.id-a.id);
-    deposits = [...deposits, ...newDeposits].sort((a,b)=>b.id-a.id);
+    sales     = [...sales,     ...newSales    ].sort((a,b)=>b.id-a.id);
+    expenses  = [...expenses,  ...newExpenses ].sort((a,b)=>b.id-a.id);
+    deposits  = [...deposits,  ...newDeposits ].sort((a,b)=>b.id-a.id);
+    inventory = [...inventory, ...newInv];
 
-    const added = newSales.length + newExpenses.length + newDeposits.length;
+    const added = newSales.length + newExpenses.length + newDeposits.length + newInv.length;
     if(added === 0){
       closeImportModal();
       toast('ℹ️ No new records — everything already exists');
@@ -1909,11 +2075,12 @@ function confirmImport(){
   save();
   closeImportModal();
   refreshAll();
+  populateInvDropdowns();
   renderDashboard();
 
   const msg = mode==='replace'
     ? `✓ Restored: ${sales.length} sales, ${expenses.length} expenses, ${deposits.length} deposits`
-    : `✓ Merged in ${(importData.sales||[]).filter(s=>!sales.find(x=>x.id===s.id)).length + (importData.expenses||[]).filter(e=>!expenses.find(x=>x.id===e.id)).length} new records`;
+    : `✓ Merged new records successfully`;
   toast(msg);
 }
 
@@ -2252,7 +2419,209 @@ function parseCSVText(text) {
   }
   return rows;
 }
-function toast(msg){
+// ═══════════════════════════════════════════
+// INVENTORY — CRUD
+// ═══════════════════════════════════════════
+let editingInvId = null;
+
+function addInventoryItem() {
+  const name  = clampStr(sanitizeText(ge('inv_name').value.trim()), 200);
+  const stock = Math.max(0, Math.min(99999, parseInt(ge('inv_stock').value)||0));
+  if(!name) return alert('Enter an item name.');
+  inventory.push({
+    id    : Date.now(),
+    name,
+    sku   : clampStr(sanitizeText(ge('inv_sku').value.trim()), 80),
+    stock,
+    cost  : Math.max(0, parseFloat(ge('inv_cost').value)||0),
+    notes : clampStr(sanitizeText(ge('inv_notes').value.trim()), 300)
+  });
+  save();
+  ['inv_name','inv_sku','inv_stock','inv_cost','inv_notes'].forEach(id=>ge(id).value='');
+  renderInventory();
+  populateInvDropdowns();
+  toast('📦 Item added!');
+}
+
+function deleteInventoryItem(id) {
+  if(!confirm('Delete this inventory item? Sales linked to it won\'t be affected.')) return;
+  inventory = inventory.filter(i=>i.id!==id);
+  save();
+  renderInventory();
+  populateInvDropdowns();
+}
+
+function openEditInv(id) {
+  const item = inventory.find(i=>i.id===id);
+  if(!item) return;
+  editingInvId = id;
+  ge('ei_name').value          = item.name  || '';
+  ge('ei_sku').value           = item.sku   || '';
+  ge('ei_cost').value          = item.cost  || '';
+  ge('ei_notes').value         = item.notes || '';
+  ge('ei_adjust').value        = '';
+  ge('ei_adjust_reason').value = '';
+  ge('editInvModal').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeEditInv() {
+  ge('editInvModal').classList.remove('open');
+  document.body.style.overflow = '';
+  editingInvId = null;
+}
+
+function saveEditInv() {
+  const name = clampStr(sanitizeText(ge('ei_name').value.trim()), 200);
+  if(!name) return alert('Enter an item name.');
+  const idx = inventory.findIndex(i=>i.id===editingInvId);
+  if(idx===-1) return;
+  const item   = inventory[idx];
+  const adjust = parseInt(ge('ei_adjust').value)||0;
+  const newStock = Math.max(0, (item.stock||0) + adjust);
+  if(adjust!==0 && newStock===0 && adjust<0) {
+    if(!confirm('This will bring stock to 0. Continue?')) return;
+  }
+  inventory[idx] = {
+    ...item,
+    name,
+    sku   : clampStr(sanitizeText(ge('ei_sku').value.trim()), 80),
+    cost  : Math.max(0, parseFloat(ge('ei_cost').value)||0),
+    notes : clampStr(sanitizeText(ge('ei_notes').value.trim()), 300),
+    stock : newStock
+  };
+  if(adjust!==0) {
+    logInvMovement(editingInvId, name, adjust,
+      clampStr(sanitizeText(ge('ei_adjust_reason').value.trim()), 150) || 'Manual adjustment',
+      newStock);
+  }
+  save();
+  closeEditInv();
+  renderInventory();
+  populateInvDropdowns();
+  toast('✓ Item updated!');
+}
+
+ge('editInvModal').addEventListener('click', function(e){ if(e.target===this) closeEditInv(); });
+
+function renderInventory() {
+  const grid  = ge('invGrid');
+  const empty = ge('invEmpty');
+  const logBody  = ge('invLogBody');
+  const logEmpty = ge('invLogEmpty');
+
+  if(!inventory.length) {
+    grid.innerHTML=''; empty.style.display='block';
+  } else {
+    empty.style.display='none';
+    grid.innerHTML = inventory.map(item=>{
+      const s = item.stock||0;
+      const badge = s===0
+        ? `<span class="inv-stock-badge inv-stock-zero">Out of stock</span>`
+        : s<=3
+        ? `<span class="inv-stock-badge inv-stock-low">Low: ${s}</span>`
+        : `<span class="inv-stock-badge inv-stock-ok">${s} in stock</span>`;
+      return`<div class="inv-card">
+        <div class="inv-card-name" title="${item.name}">${item.name}</div>
+        ${item.sku?`<div class="inv-card-sku">SKU: ${item.sku}</div>`:''}
+        <div class="inv-card-row">
+          <div class="inv-card-stock ${s===0?'r':s<=3?'y':'g'}">${s}</div>
+          ${badge}
+        </div>
+        ${item.cost?`<div style="font-size:10px;color:var(--text3);">Cost: $${(+item.cost).toFixed(2)}</div>`:''}
+        ${item.notes?`<div style="font-size:10px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${item.notes}</div>`:''}
+        <div class="inv-card-row" style="margin-top:6px;">
+          <button class="icon-btn edit-btn" onclick="openEditInv(${item.id})" title="Edit">✎</button>
+          <button class="icon-btn del-btn"  onclick="deleteInventoryItem(${item.id})" title="Delete">✕</button>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  const sorted = [...invLog].reverse();
+  if(!sorted.length) {
+    logBody.innerHTML=''; logEmpty.style.display='block';
+  } else {
+    logEmpty.style.display='none';
+    logBody.innerHTML = sorted.slice(0,50).map(l=>`<tr>
+      <td>${l.date||''}</td>
+      <td style="color:var(--text);font-weight:500;">${l.itemName||''}</td>
+      <td class="${l.change>0?'g':'r'} fw">${l.change>0?'+':''}${l.change}</td>
+      <td style="color:var(--text3);">${l.reason||''}</td>
+      <td>${l.stockAfter}</td>
+    </tr>`).join('');
+  }
+}
+
+// ═══════════════════════════════════════════
+// INVENTORY — Stock engine
+// ═══════════════════════════════════════════
+function logInvMovement(itemId, itemName, change, reason, stockAfter) {
+  invLog.push({ id:Date.now(), date:today(), itemId, itemName, change, reason, stockAfter });
+  // Keep log to 500 entries
+  if(invLog.length>500) invLog = invLog.slice(-500);
+}
+
+function adjustStockForSale(sale, source) {
+  if(!sale.invItemId) return;
+  const item = inventory.find(i=>i.id===sale.invItemId);
+  if(!item) return;
+  const qty = Math.max(1, parseInt(sale.invQty)||1);
+  const prev = item.stock||0;
+  if(prev===0) {
+    toast('⚠ Stock already at 0 for: '+item.name);
+  }
+  item.stock = Math.max(0, prev - qty);
+  logInvMovement(item.id, item.name, -qty, `Sold (${source})`, item.stock);
+}
+
+function restoreStockForSale(sale, reason) {
+  if(!sale.invItemId) return;
+  const item = inventory.find(i=>i.id===sale.invItemId);
+  if(!item) return;
+  const qty = Math.max(1, parseInt(sale.invQty)||1);
+  item.stock = (item.stock||0) + qty;
+  logInvMovement(item.id, item.name, +qty, reason||'Sale deleted', item.stock);
+}
+
+function onInvItemSelect(prefix) {
+  const sel   = ge(prefix+'_inv_item');
+  const wrap  = ge(prefix+'_inv_stock_wrap');
+  const prev  = ge(prefix+'_inv_stock_preview');
+  if(!sel) return;
+  const itemId = parseInt(sel.value)||0;
+  if(!itemId || !wrap) return;
+  const item = inventory.find(i=>i.id===itemId);
+  if(item) {
+    wrap.style.display='block';
+    const qty  = Math.max(1, parseInt(ge(prefix+'_inv_qty')?.value)||1);
+    const after = Math.max(0,(item.stock||0)-qty);
+    if(prev) {
+      prev.textContent = `${after} (from ${item.stock})`;
+      prev.style.color = after===0?'var(--red-light)':after<=3?'var(--yellow-light)':'var(--accent-light)';
+    }
+    // Auto-fill cost if blank
+    const cogsEl = ge(prefix==='f'?'f_cogs':'es_cogs');
+    if(cogsEl && !cogsEl.value && item.cost) cogsEl.value = item.cost;
+    if(prefix==='f') calcLive(); else calcEditLive();
+  } else {
+    if(wrap) wrap.style.display='none';
+  }
+}
+
+function populateInvDropdowns() {
+  ['f_inv_item','es_inv_item'].forEach(id=>{
+    const sel = ge(id);
+    if(!sel) return;
+    const cur = sel.value;
+    sel.innerHTML = `<option value="">— No inventory link —</option>` +
+      inventory.map(i=>`<option value="${i.id}" ${String(cur)===String(i.id)?'selected':''}>${i.name}${i.sku?' ('+i.sku+')':''} — ${i.stock} in stock</option>`).join('');
+  });
+}
+
+// ═══════════════════════════════════════════
+// TOAST
+// ═══════════════════════════════════════════
   const t=document.createElement('div');t.textContent=msg;
   t.style.cssText='position:fixed;bottom:16px;right:16px;background:var(--accent);color:#0d0f12;font-family:var(--font);font-weight:700;font-size:12px;padding:7px 13px;border-radius:5px;z-index:999;';
   document.body.appendChild(t);setTimeout(()=>t.remove(),2000);
@@ -2379,6 +2748,8 @@ async function _doSync(showFeedback=false) {
     sales    : sales,
     expenses : expenses,
     deposits : deposits,
+    inventory: inventory,
+    invlog   : invLog,
     updated_at: new Date().toISOString()
   };
 
@@ -2400,22 +2771,26 @@ async function loadFromSupabase() {
   if(!currentUser) return false;
   const {data, error} = await supa
     .from('user_data')
-    .select('sales, expenses, deposits')
+    .select('sales, expenses, deposits, inventory, invlog')
     .eq('user_id', currentUser.id)
     .single();
 
-  if(error && error.code !== 'PGRST116') { // PGRST116 = no row yet (new user)
+  if(error && error.code !== 'PGRST116') {
     console.error('Load error:', error.message);
     return false;
   }
 
   if(data) {
-    sales    = data.sales    || [];
-    expenses = data.expenses || [];
-    deposits = data.deposits || [];
-    localStorage.setItem('fl_sales',    JSON.stringify(sales));
-    localStorage.setItem('fl_expenses', JSON.stringify(expenses));
-    localStorage.setItem('fl_deposits', JSON.stringify(deposits));
+    sales     = data.sales     || [];
+    expenses  = data.expenses  || [];
+    deposits  = data.deposits  || [];
+    inventory = Array.isArray(data.inventory) ? data.inventory : [];
+    invLog    = Array.isArray(data.invlog)    ? data.invlog    : [];
+    localStorage.setItem('fl_sales',     JSON.stringify(sales));
+    localStorage.setItem('fl_expenses',  JSON.stringify(expenses));
+    localStorage.setItem('fl_deposits',  JSON.stringify(deposits));
+    localStorage.setItem('fl_inventory', JSON.stringify(inventory));
+    localStorage.setItem('fl_invlog',    JSON.stringify(invLog));
   }
   return true;
 }
@@ -2428,6 +2803,7 @@ function initApp() {
   ge('e_date').value=today();
   ge('dep_date').value=today();
   ge('pageDate').textContent=new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+  populateInvDropdowns();
   renderDashboard();
 }
 
