@@ -947,6 +947,7 @@
         <div class="fgrp"><label>Quantity Sold</label><input type="number" id="es_inv_qty" placeholder="1" min="1" max="9999" step="1" value="1"></div>
       </div>
       <div class="form-grid fg4">
+        <div class="fgrp"><label>Sold For $</label><input type="number" id="es_sold" step="0.01" min="0" oninput="calcEditLive()"></div>
         <div class="fgrp"><label>Product Cost (COGS) $</label><input type="number" id="es_cogs" step="0.01" min="0" oninput="calcEditLive()"></div>
         <div class="fgrp"><label>Shipping Cost $</label><input type="number" id="es_shipping" step="0.01" min="0" oninput="calcEditLive()"></div>
         <div class="fgrp"><label>Sales Tax Collected $</label><input type="number" id="es_salestax" step="0.01" min="0" oninput="calcEditLive()"></div>
@@ -2655,6 +2656,7 @@ function toggleUseInvName() {
 }
 
 
+function populateInvDropdowns() {
   ['f_inv_item','es_inv_item'].forEach(id=>{
     const sel = ge(id);
     if(!sel) return;
