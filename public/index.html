@@ -2859,32 +2859,39 @@ function initApp() {
 // STARTUP — check session, show auth or app
 // ═══════════════════════════════════════════
 (async function startup() {
-  // Listen for auth state changes (handles login, logout, token refresh)
-  supa.auth.onAuthStateChange(async (event, session) => {
-    if(event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-      if(!currentUser) { // First sign-in this session
-        ge('loadingOverlay').classList.remove('hidden');
-        ge('authScreen').classList.add('hidden');
-        ge('loadingOverlay').querySelector('.loading-text').textContent = 'Loading your data…';
-        await loadFromSupabase();
-        showApp(session.user);
-        initApp();
+  try {
+    // Listen for auth state changes (handles login, logout, token refresh)
+    supa.auth.onAuthStateChange(async (event, session) => {
+      if(event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        if(!currentUser) { // First sign-in this session
+          ge('loadingOverlay').classList.remove('hidden');
+          ge('authScreen').classList.add('hidden');
+          ge('loadingOverlay').querySelector('.loading-text').textContent = 'Loading your data…';
+          await loadFromSupabase();
+          showApp(session.user);
+          initApp();
+        }
+      } else if(event === 'SIGNED_OUT') {
+        showAuthScreen();
       }
-    } else if(event === 'SIGNED_OUT') {
-      showAuthScreen();
-    }
-  });
+    });
 
-  // Check for existing session
-  const {data:{session}} = await supa.auth.getSession();
-  if(session) {
-    ge('loadingOverlay').querySelector('.loading-text').textContent = 'Loading your data…';
-    currentUser = session.user;
-    await loadFromSupabase();
-    showApp(session.user);
-    initApp();
-  } else {
-    // No session — show auth screen
+    // Check for existing session
+    const {data:{session}} = await supa.auth.getSession();
+    if(session) {
+      ge('loadingOverlay').querySelector('.loading-text').textContent = 'Loading your data…';
+      currentUser = session.user;
+      await loadFromSupabase();
+      showApp(session.user);
+      initApp();
+    } else {
+      // No session — show auth screen
+      ge('loadingOverlay').classList.add('hidden');
+      ge('authScreen').classList.remove('hidden');
+    }
+  } catch(err) {
+    // If Supabase fails (bad keys, network error, etc.), fall back to auth screen
+    console.error('Startup error:', err);
     ge('loadingOverlay').classList.add('hidden');
     ge('authScreen').classList.remove('hidden');
   }
