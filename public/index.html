@@ -557,7 +557,16 @@
     <div class="sec">New Sale Entry</div>
     <div class="card">
       <div class="form-grid fg4">
-        <div class="fgrp span2"><label>Item Title *</label><input type="text" id="f_title" placeholder="e.g. Nike Air Max 90 Size 10" oninput="calcLive()"></div>
+        <div class="fgrp span2">
+          <label style="display:flex;align-items:center;justify-content:space-between;">
+            <span>Item Title <span id="f_title_required" style="color:var(--text3);">*</span></span>
+            <label style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--text3);text-transform:none;letter-spacing:0;cursor:pointer;font-weight:400;">
+              <input type="checkbox" id="f_use_inv_name" onchange="toggleUseInvName()" style="accent-color:var(--accent);cursor:pointer;">
+              use inventory item name
+            </label>
+          </label>
+          <input type="text" id="f_title" placeholder="e.g. Nike Air Max 90 Size 10" oninput="calcLive()">
+        </div>
         <div class="fgrp"><label>Sale Date *</label><input type="date" id="f_date" oninput="calcLive()"></div>
         <div class="fgrp"><label>Platform</label>
           <select id="f_platform" onchange="calcLive()">
@@ -707,10 +716,9 @@
       <div id="depEmpty"><div class="empty"><div class="empty-icon">🏦</div><div class="empty-title">No deposits yet</div><div>Record money you've set aside for taxes</div></div></div>
     </div>
   </div>
-</div>
 
-<!-- ═══ INVENTORY PAGE ═══ -->
-<div id="page-inventory" class="page">
+  <!-- ═══ INVENTORY PAGE ═══ -->
+  <div id="page-inventory" class="page">
   <div class="sec">Add Inventory Item</div>
   <div class="card">
     <div class="form-grid fg4">
@@ -731,7 +739,9 @@
     <tbody id="invLogBody"></tbody></table>
     <div id="invLogEmpty"><div class="empty"><div class="empty-icon">📋</div><div class="empty-title">No movements yet</div><div>Stock changes appear here when sales are added or deleted</div></div></div>
   </div>
-</div>
+  </div><!-- end page-inventory -->
+
+</div><!-- end #main -->
 
 <!-- ═══ EDIT INVENTORY MODAL ═══ -->
 <div class="modal-overlay" id="editInvModal">
@@ -1519,14 +1529,22 @@ function calcLive() {
 // SALE FORM
 // ═══════════════════════════════════════════
 function submitSale() {
-  const title = clampStr(ge('f_title').value.trim(), 200);
+  const useInvName = ge('f_use_inv_name')?.checked;
+  const invItemId  = gv('f_inv_item') ? parseInt(gv('f_inv_item')) : null;
+
+  let title = clampStr(ge('f_title').value.trim(), 200);
+  // If "use inventory name" is checked, pull name from inventory item
+  if(useInvName && invItemId) {
+    const inv = inventory.find(i=>i.id===invItemId);
+    if(inv) title = clampStr(inv.name, 200);
+  }
+  title = sanitizeText(title);
   const date  = ge('f_date').value;
   const sold  = parseFloat(ge('f_sold').value);
   if(!title)       return alert('Please enter an item title.');
   if(!date)        return alert('Please enter a sale date.');
   if(!sold||sold<=0) return alert('Please enter a valid sale price.');
 
-  const invItemId = gv('f_inv_item') ? parseInt(gv('f_inv_item')) : null;
   const invQty    = Math.max(1, parseInt(gv('f_inv_qty')) || 1);
 
   // Check stock before saving
@@ -1561,6 +1579,8 @@ function clearForm(){
   ge('f_inv_item').value='';
   ge('f_inv_qty').value='1';
   ge('f_inv_stock_wrap').style.display='none';
+  const cb = ge('f_use_inv_name');
+  if(cb) { cb.checked=false; ge('f_title').disabled=false; ge('f_title').style.opacity=''; ge('f_title_required').textContent='*'; }
   clearStagingPhotos('sale');
   calcLive();
 }
@@ -2601,6 +2621,10 @@ function onInvItemSelect(prefix) {
       prev.textContent = `${after} (from ${item.stock})`;
       prev.style.color = after===0?'var(--red-light)':after<=3?'var(--yellow-light)':'var(--accent-light)';
     }
+    // Auto-fill title from inventory name if checkbox is checked (add-sale form only)
+    if(prefix==='f' && ge('f_use_inv_name')?.checked) {
+      ge('f_title').value = item.name;
+    }
     // Auto-fill cost if blank
     const cogsEl = ge(prefix==='f'?'f_cogs':'es_cogs');
     if(cogsEl && !cogsEl.value && item.cost) cogsEl.value = item.cost;
@@ -2610,7 +2634,27 @@ function onInvItemSelect(prefix) {
   }
 }
 
-function populateInvDropdowns() {
+function toggleUseInvName() {
+  const cb    = ge('f_use_inv_name');
+  const input = ge('f_title');
+  const req   = ge('f_title_required');
+  if(cb.checked) {
+    input.disabled    = true;
+    input.style.opacity = '0.4';
+    req.textContent   = '(auto)';
+    // immediately fill from current dropdown selection
+    const itemId = parseInt(gv('f_inv_item'))||0;
+    const item   = inventory.find(i=>i.id===itemId);
+    if(item) input.value = item.name;
+    else     input.value = '';
+  } else {
+    input.disabled    = false;
+    input.style.opacity = '';
+    req.textContent   = '*';
+  }
+}
+
+
   ['f_inv_item','es_inv_item'].forEach(id=>{
     const sel = ge(id);
     if(!sel) return;
