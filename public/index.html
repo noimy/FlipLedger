@@ -415,8 +415,16 @@
 
 <!-- ═══ LOADING OVERLAY ═══ -->
 <div id="loadingOverlay">
-  <div class="loading-spinner"></div>
-  <div class="loading-text">Loading FlipLedger…</div>
+  <div style="text-align:center;display:flex;flex-direction:column;align-items:center;gap:16px;">
+    <div style="font-size:22px;font-weight:700;color:var(--accent-light);letter-spacing:-0.5px;">📦 FlipLedger</div>
+    <div class="loading-spinner"></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+      <div class="loading-text" id="loadingStatus">Starting up…</div>
+      <div style="width:180px;height:3px;background:var(--border2);border-radius:2px;overflow:hidden;">
+        <div id="loadingBar" style="height:100%;width:0%;background:var(--accent);border-radius:2px;transition:width 0.35s ease;"></div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- ═══ AUTH SCREEN ═══ -->
@@ -2750,7 +2758,7 @@ function showAuthScreen() {
 function showApp(user) {
   currentUser = user;
   ge('authScreen').classList.add('hidden');
-  ge('loadingOverlay').classList.add('hidden');
+  ge('loadingOverlay').classList.add('hidden');  // hide overlay — app is fully rendered
   ge('userBadge').style.display  = 'flex';
   ge('syncBtn').style.display    = 'inline-block';
   ge('signOutBtn').style.display = 'inline-block';
@@ -2866,18 +2874,49 @@ function initApp() {
 // ═══════════════════════════════════════════
 // STARTUP — check session, show auth or app
 // ═══════════════════════════════════════════
+
+// Sets loading bar progress + status text
+function setLoading(pct, msg) {
+  const bar = ge('loadingBar');
+  const txt = ge('loadingStatus');
+  if(bar) bar.style.width = pct + '%';
+  if(txt) txt.textContent = msg;
+}
+
+// Loads data, renders everything, THEN reveals the app in one shot
+async function bootIntoApp(user) {
+  currentUser = user;
+
+  // Show loading overlay, hide auth
+  ge('authScreen').classList.add('hidden');
+  ge('loadingOverlay').classList.remove('hidden');
+
+  setLoading(20, 'Authenticating…');
+  await new Promise(r => setTimeout(r, 80)); // let the browser paint
+
+  setLoading(45, 'Fetching your data…');
+  await loadFromSupabase();
+
+  setLoading(75, 'Building dashboard…');
+  await new Promise(r => setTimeout(r, 50));
+
+  // Run all rendering while overlay is still showing
+  initApp();
+
+  setLoading(100, 'Ready!');
+  await new Promise(r => setTimeout(r, 200)); // brief "Ready!" moment
+
+  // Now reveal the fully-rendered app
+  showApp(user);
+}
+
 (async function startup() {
   try {
     // Listen for auth state changes (handles login, logout, token refresh)
     supa.auth.onAuthStateChange(async (event, session) => {
       if(event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
         if(!currentUser) { // First sign-in this session
-          ge('loadingOverlay').classList.remove('hidden');
-          ge('authScreen').classList.add('hidden');
-          ge('loadingOverlay').querySelector('.loading-text').textContent = 'Loading your data…';
-          await loadFromSupabase();
-          showApp(session.user);
-          initApp();
+          await bootIntoApp(session.user);
         }
       } else if(event === 'SIGNED_OUT') {
         showAuthScreen();
@@ -2887,11 +2926,7 @@ function initApp() {
     // Check for existing session
     const {data:{session}} = await supa.auth.getSession();
     if(session) {
-      ge('loadingOverlay').querySelector('.loading-text').textContent = 'Loading your data…';
-      currentUser = session.user;
-      await loadFromSupabase();
-      showApp(session.user);
-      initApp();
+      await bootIntoApp(session.user);
     } else {
       // No session — show auth screen
       ge('loadingOverlay').classList.add('hidden');
