@@ -54,48 +54,15 @@
   .auth-guest-btn:hover{border-color:var(--text3);color:var(--text2);}
   /* Loading overlay */
   #loadingOverlay{
-    position:fixed;inset:0;z-index:9998;
-    background:var(--bg);
-    display:flex;align-items:center;justify-content:center;flex-direction:column;
+    position:fixed;inset:0;z-index:9998;background:var(--bg);
+    display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;
   }
   #loadingOverlay.hidden{display:none;}
-  .ld-card{
-    display:flex;flex-direction:column;align-items:center;gap:0;
-    background:var(--surface);border:1px solid var(--border2);
-    border-radius:16px;padding:36px 44px 32px;
-    box-shadow:0 32px 80px rgba(0,0,0,0.55);
-    min-width:300px;
+  .loading-spinner{
+    width:28px;height:28px;border:3px solid var(--border2);
+    border-top-color:var(--accent);border-radius:50%;
+    animation:spin .7s linear infinite;
   }
-  .ld-logo{font-size:13px;font-weight:700;color:var(--accent-light);letter-spacing:.3px;margin-bottom:4px;}
-  .ld-tagline{font-size:10px;color:var(--text3);margin-bottom:28px;}
-  .ld-hex{
-    position:relative;width:52px;height:52px;margin-bottom:24px;
-  }
-  .ld-hex svg{width:52px;height:52px;}
-  .ld-hex .track{stroke:var(--border2);}
-  .ld-hex .fill{
-    stroke:var(--accent);stroke-dasharray:130;stroke-dashoffset:130;
-    transition:stroke-dashoffset 0.4s ease;
-  }
-  .ld-hex .icon{
-    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-    font-size:18px;
-  }
-  .ld-steps{display:flex;flex-direction:column;gap:7px;width:100%;margin-bottom:22px;}
-  .ld-step{
-    display:flex;align-items:center;gap:9px;
-    font-size:11px;color:var(--text3);transition:color .25s;
-  }
-  .ld-step.done{color:var(--text2);}
-  .ld-step.active{color:var(--accent-light);font-weight:600;}
-  .ld-step-dot{
-    width:7px;height:7px;border-radius:50%;flex-shrink:0;
-    background:var(--border2);transition:background .25s;
-  }
-  .ld-step.done .ld-step-dot{background:var(--accent);}
-  .ld-step.active .ld-step-dot{background:var(--accent-light);box-shadow:0 0 6px var(--accent);}
-  .ld-bar-wrap{width:100%;height:3px;background:var(--border2);border-radius:2px;overflow:hidden;}
-  .ld-bar{height:100%;width:0%;background:linear-gradient(90deg,var(--accent),var(--accent-light));border-radius:2px;transition:width 0.4s ease;}
   @keyframes spin{to{transform:rotate(360deg);}}
   .loading-text{font-size:12px;color:var(--text3);}
   /* User badge in topbar */
@@ -448,25 +415,8 @@
 
 <!-- ═══ LOADING OVERLAY ═══ -->
 <div id="loadingOverlay">
-  <div class="ld-card">
-    <div class="ld-logo">📦 FlipLedger</div>
-    <div class="ld-tagline">eBay Reseller Accountant</div>
-    <div class="ld-hex">
-      <svg viewBox="0 0 52 52" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <circle cx="26" cy="26" r="20" stroke-width="3" class="track"/>
-        <circle cx="26" cy="26" r="20" stroke-width="3" class="fill"
-          stroke-linecap="round" transform="rotate(-90 26 26)"/>
-      </svg>
-      <div class="ld-icon">💰</div>
-    </div>
-    <div class="ld-steps" id="ldSteps">
-      <div class="ld-step active" id="ldStep0"><div class="ld-step-dot"></div>Connecting…</div>
-      <div class="ld-step" id="ldStep1"><div class="ld-step-dot"></div>Fetching your data</div>
-      <div class="ld-step" id="ldStep2"><div class="ld-step-dot"></div>Building dashboard</div>
-      <div class="ld-step" id="ldStep3"><div class="ld-step-dot"></div>Ready</div>
-    </div>
-    <div class="ld-bar-wrap"><div class="ld-bar" id="loadingBar"></div></div>
-  </div>
+  <div class="loading-spinner"></div>
+  <div class="loading-text">Loading FlipLedger…</div>
 </div>
 
 <!-- ═══ AUTH SCREEN ═══ -->
@@ -2800,7 +2750,7 @@ function showAuthScreen() {
 function showApp(user) {
   currentUser = user;
   ge('authScreen').classList.add('hidden');
-  ge('loadingOverlay').classList.add('hidden');  // hide overlay — app is fully rendered
+  ge('loadingOverlay').classList.add('hidden');
   ge('userBadge').style.display  = 'flex';
   ge('syncBtn').style.display    = 'inline-block';
   ge('signOutBtn').style.display = 'inline-block';
@@ -2916,73 +2866,18 @@ function initApp() {
 // ═══════════════════════════════════════════
 // STARTUP — check session, show auth or app
 // ═══════════════════════════════════════════
-
-// Animate the circular progress ring
-function setLoadingRing(pct) {
-  const circle = document.querySelector('#loadingOverlay .ld-hex .fill');
-  if(!circle) return;
-  const circumference = 2 * Math.PI * 20; // r=20 → ~125.6
-  const offset = circumference - (pct / 100) * circumference;
-  circle.style.strokeDasharray = circumference;
-  circle.style.strokeDashoffset = offset;
-}
-
-// Activate a step (0-3) and set bar width
-function setLoadingStep(step, pct) {
-  for(let i = 0; i < 4; i++) {
-    const el = ge('ldStep' + i);
-    if(!el) continue;
-    el.classList.remove('active', 'done');
-    if(i < step)  el.classList.add('done');
-    if(i === step) el.classList.add('active');
-  }
-  const bar = ge('loadingBar');
-  if(bar) bar.style.width = pct + '%';
-  setLoadingRing(pct);
-}
-
-// Loads data, renders everything, THEN reveals the app in one shot
-async function bootIntoApp(user) {
-  try {
-    currentUser = user;
-
-    // Show loading overlay, hide auth
-    ge('authScreen').classList.add('hidden');
-    ge('loadingOverlay').classList.remove('hidden');
-
-    setLoadingStep(0, 10);
-    await new Promise(r => setTimeout(r, 120)); // let browser paint
-
-    setLoadingStep(1, 40);
-    await loadFromSupabase();
-
-    setLoadingStep(2, 75);
-    await new Promise(r => setTimeout(r, 60)); // let browser paint before heavy render
-
-    // Render everything while overlay is still up
-    initApp();
-
-    setLoadingStep(3, 100);
-    await new Promise(r => setTimeout(r, 320)); // show "Ready" briefly
-
-    // Reveal fully-rendered app
-    showApp(user);
-
-  } catch(err) {
-    console.error('Boot error:', err);
-    // Always escape the loading screen even if something crashes
-    ge('loadingOverlay').classList.add('hidden');
-    ge('authScreen').classList.remove('hidden');
-  }
-}
-
 (async function startup() {
   try {
     // Listen for auth state changes (handles login, logout, token refresh)
     supa.auth.onAuthStateChange(async (event, session) => {
       if(event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
         if(!currentUser) { // First sign-in this session
-          await bootIntoApp(session.user);
+          ge('loadingOverlay').classList.remove('hidden');
+          ge('authScreen').classList.add('hidden');
+          ge('loadingOverlay').querySelector('.loading-text').textContent = 'Loading your data…';
+          await loadFromSupabase();
+          showApp(session.user);
+          initApp();
         }
       } else if(event === 'SIGNED_OUT') {
         showAuthScreen();
@@ -2992,7 +2887,11 @@ async function bootIntoApp(user) {
     // Check for existing session
     const {data:{session}} = await supa.auth.getSession();
     if(session) {
-      await bootIntoApp(session.user);
+      ge('loadingOverlay').querySelector('.loading-text').textContent = 'Loading your data…';
+      currentUser = session.user;
+      await loadFromSupabase();
+      showApp(session.user);
+      initApp();
     } else {
       // No session — show auth screen
       ge('loadingOverlay').classList.add('hidden');
