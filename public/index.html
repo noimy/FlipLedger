@@ -2805,6 +2805,7 @@ function showApp(user) {
 // SYNC UI HELPERS
 // ═══════════════════════════════════════════
 let _chipTimer = null;
+let _progressHideTimer = null;
 
 function syncChip(state, text, autohideMs=0) {
   const chip = ge('syncChip');
@@ -2812,7 +2813,8 @@ function syncChip(state, text, autohideMs=0) {
   const lbl  = ge('scText');
   if(!chip) return;
   clearTimeout(_chipTimer);
-  chip.className = state + ' show';           // 'syncing' | 'ok' | 'err'
+  chip.classList.remove('syncing','ok','err');
+  chip.classList.add(state,'show');           // 'syncing' | 'ok' | 'err'
   dot.className  = 'sc-dot' + (state==='syncing' ? ' pulse' : '');
   lbl.textContent = text;
   if(autohideMs) _chipTimer = setTimeout(() => chip.classList.remove('show'), autohideMs);
@@ -2822,6 +2824,7 @@ function progressStart() {
   const bar  = ge('syncProgressBar');
   const fill = ge('spbFill');
   if(!bar||!fill) return;
+  clearTimeout(_progressHideTimer);
   fill.style.transition='none'; fill.style.width='0%';
   bar.classList.add('visible');
   requestAnimationFrame(() => {
@@ -2834,9 +2837,10 @@ function progressDone() {
   const bar  = ge('syncProgressBar');
   const fill = ge('spbFill');
   if(!bar||!fill) return;
+  clearTimeout(_progressHideTimer);
   fill.style.transition='width 0.2s ease';
   fill.style.width='100%';
-  setTimeout(()=>{ bar.classList.remove('visible'); setTimeout(()=>fill.style.width='0%',200); },300);
+  _progressHideTimer = setTimeout(()=>{ bar.classList.remove('visible'); setTimeout(()=>fill.style.width='0%',200); },300);
 }
 
 // ── Dismiss the full-screen overlay with a smooth fade ──────────────────────
@@ -2876,7 +2880,7 @@ async function syncToSupabase(manual=false) {
   if(!currentUser || guestMode) return;
   if(!manual) {
     clearTimeout(syncTimer);
-    syncTimer = setTimeout(()=>_doSync(false), 2000);
+    syncTimer = setTimeout(_doSync, 2000);
     return;
   }
   await _doSync(true);
@@ -2977,11 +2981,14 @@ function initApp() {
           // User just logged in — keep overlay up, fetch cloud data, THEN reveal app
           ge('loadingText').textContent = 'Loading your data…';
           currentUser = session.user;
-          await loadFromSupabase();
-          showApp(session.user);
-          initApp();
-          syncChip('ok','✓ Up to date', 2000);
-          dismissOverlay();
+          try {
+            await loadFromSupabase();
+            showApp(session.user);
+            initApp();
+            syncChip('ok','✓ Up to date', 2000);
+          } finally {
+            dismissOverlay();
+          }
         }
       } else if(event === 'SIGNED_OUT') {
         showAuthScreen();
@@ -2997,11 +3004,14 @@ function initApp() {
       // Returning user — keep overlay up, load cloud data, then reveal app
       ge('loadingText').textContent = 'Loading your data…';
       currentUser = session.user;
-      await loadFromSupabase();
-      showApp(session.user);
-      initApp();
-      syncChip('ok','✓ Up to date', 2000);
-      dismissOverlay();
+      try {
+        await loadFromSupabase();
+        showApp(session.user);
+        initApp();
+        syncChip('ok','✓ Up to date', 2000);
+      } finally {
+        dismissOverlay();
+      }
     } else {
       // No session — hide overlay immediately and show auth screen
       ov.classList.add('hidden');
