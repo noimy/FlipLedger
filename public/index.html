@@ -1144,6 +1144,7 @@ const AUTH_BOOT_OP_TIMEOUT_MS = 12000;
 const AUTH_BOOT_RETRIES = 3;
 const AUTH_BOOT_RETRY_DELAY_MS = 650;
 const INITIAL_CLOUD_LOAD_RETRIES = 2;
+const INITIAL_CLOUD_LOAD_RETRY_DELAY_MS = 450;
 let startupGuardTimer = null;
 let startupResolved = false;
 
@@ -3395,7 +3396,7 @@ async function loadFromSupabaseWithRetry(expectedMutationTick=null) {
   for(let attempt = 1; attempt <= INITIAL_CLOUD_LOAD_RETRIES; attempt++) {
     const loaded = await loadFromSupabase(expectedMutationTick);
     if(loaded) return true;
-    if(attempt < INITIAL_CLOUD_LOAD_RETRIES) await sleep(450 * attempt);
+    if(attempt < INITIAL_CLOUD_LOAD_RETRIES) await sleep(INITIAL_CLOUD_LOAD_RETRY_DELAY_MS * attempt);
   }
   return false;
 }
@@ -3469,6 +3470,7 @@ function initApp() {
       try {
         if((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') && session?.user) {
           if(appReady && currentUser?.id === session.user.id) {
+            console.debug(`Auth event ${event}: user already active; refreshing currentUser only.`);
             currentUser = session.user;
             return;
           }
