@@ -1064,9 +1064,13 @@
 const SUPA_URL  = 'https://uacozrldoipvurjrtipd.supabase.co';   // e.g. https://abcxyz.supabase.co
 const SUPA_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVhY296cmxkb2lwdnVyanJ0aXBkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYwMjkxMDUsImV4cCI6MjA5MTYwNTEwNX0.zxQx4_5YTZKzRae8N1V2rQOBiZbCVDoSEKlNDhFi75I';
 
-const supa = supabase.createClient(SUPA_URL, SUPA_KEY);
+const supa = (typeof supabase !== 'undefined' && SUPA_URL && SUPA_KEY)
+  ? supabase.createClient(SUPA_URL, SUPA_KEY)
+  : null;
 let currentUser = null;
 let guestMode   = false;
+let startupInFlight = false;
+let appReady = false;
 
 // ═══════════════════════════════════════════
 // STATE
@@ -2733,6 +2737,7 @@ function setAuthBusy(busy) {
 }
 
 async function doLogin() {
+  if(!supa?.auth) return setAuthError('Cloud login is unavailable right now. Use "Continue without account (device only)".');
   const email    = ge('auth_email').value.trim();
   const password = ge('auth_password').value;
   if(!email||!password) return setAuthError('Enter email and password.');
@@ -2743,6 +2748,7 @@ async function doLogin() {
 }
 
 async function doSignup() {
+  if(!supa?.auth) return setAuthError('Cloud signup is unavailable right now. Use "Continue without account (device only)".');
   const email = ge('auth_email2').value.trim();
   const pw1   = ge('auth_password2').value;
   const pw2   = ge('auth_password3').value;
@@ -2758,6 +2764,7 @@ async function doSignup() {
 }
 
 async function doSignOut() {
+  if(!supa?.auth) { showAuthScreen(); return; }
   if(!confirm('Sign out? Your data is saved in the cloud.')) return;
   await supa.auth.signOut();
   currentUser = null;
@@ -2783,6 +2790,7 @@ function useAsGuest() {
 function showAuthScreen() {
   currentUser = null;
   guestMode = false;
+  appReady = false;
   dismissOverlay();
   ge('authScreen').classList.remove('hidden');
   ge('userBadge').style.display  = 'none';
@@ -2811,7 +2819,7 @@ function syncChip(state, text, autohideMs=0) {
   const chip = ge('syncChip');
   const dot  = ge('scDot');
   const lbl  = ge('scText');
-  if(!chip) return;
+  if(!chip || !dot || !lbl) return;
   clearTimeout(_chipTimer);
   chip.classList.remove('syncing','ok','err');
   chip.classList.add(state,'show');           // 'syncing' | 'ok' | 'err'
@@ -2877,7 +2885,7 @@ function dismissOverlay() {
 let syncTimer = null;
 
 async function syncToSupabase(manual=false) {
-  if(!currentUser || guestMode) return;
+  if(!supa || !currentUser || guestMode) return;
   if(!manual) {
     clearTimeout(syncTimer);
     syncTimer = setTimeout(_doSync, 2000);
@@ -2887,7 +2895,7 @@ async function syncToSupabase(manual=false) {
 }
 
 async function _doSync(showFeedback=false) {
-  if(!currentUser) return;
+  if(!supa || !currentUser) return;
 
   const btn = ge('syncBtn');
   if(btn) { btn.textContent='⟳ Syncing…'; btn.disabled=true; }
@@ -2924,17 +2932,26 @@ async function _doSync(showFeedback=false) {
 // Loads cloud data into local arrays, then updates localStorage.
 // Called BEFORE showing the app — overlay stays up until this resolves.
 async function loadFromSupabase() {
-  if(!currentUser) return false;
+  if(!supa || !currentUser) return false;
 
-  const {data, error} = await supa
-    .from('user_data')
-    .select('sales, expenses, deposits, inventory, invlog')
-    .eq('user_id', currentUser.id)
-    .single();
+  let data = null;
+  let error = null;
+  try {
+    const res = await supa
+      .from('user_data')
+      .select('sales, expenses, deposits, inventory, invlog')
+      .eq('user_id', currentUser.id)
+      .single();
+    data = res.data;
+    error = res.error;
+  } catch(err) {
+    console.error('Load error (exception):', err);
+    return false;
+  }
 
   if(error && error.code !== 'PGRST116') {
     // PGRST116 = no rows yet (new user), that's fine
-    console.error('Load error:', error.message);
+    console.error('Load error:', error);
     return false;
   }
 
@@ -2952,6 +2969,32 @@ async function loadFromSupabase() {
     localStorage.setItem('fl_invlog',    JSON.stringify(invLog));
   }
   return true;
+}
+
+async function bootSignedInSession(session, source='unknown') {
+  if(!session?.user || startupInFlight) return;
+  if(appReady && currentUser?.id === session.user.id) return;
+
+  startupInFlight = true;
+  currentUser = session.user;
+  guestMode = false;
+  const loadingText = ge('loadingText');
+  if(loadingText) loadingText.textContent = 'Loading your data…';
+
+  try {
+    const loaded = await loadFromSupabase();
+    if(!loaded) {
+      console.warn(`Cloud load failed during startup (source: ${source}); using local data fallback.`);
+      syncChip('err','⚠ Using local data', 3500);
+    }
+    showApp(session.user);
+    initApp();
+    appReady = true;
+    if(loaded) syncChip('ok','✓ Up to date', 2000);
+  } finally {
+    dismissOverlay();
+    startupInFlight = false;
+  }
 }
 
 // ═══════════════════════════════════════════
@@ -2973,23 +3016,17 @@ function initApp() {
   try {
     // Always start with the overlay covering everything
     const ov = ge('loadingOverlay');
+    if(!supa?.auth) {
+      console.error('Startup error: Supabase client not initialized.');
+      if(ov) ov.classList.add('hidden');
+      ge('authScreen').classList.remove('hidden');
+      return;
+    }
 
     // Listen for auth state changes (handles login, logout, token refresh)
     supa.auth.onAuthStateChange(async (event, session) => {
-      if(event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-        if(!currentUser) {
-          // User just logged in — keep overlay up, fetch cloud data, THEN reveal app
-          ge('loadingText').textContent = 'Loading your data…';
-          currentUser = session.user;
-          try {
-            await loadFromSupabase();
-            showApp(session.user);
-            initApp();
-            syncChip('ok','✓ Up to date', 2000);
-          } finally {
-            dismissOverlay();
-          }
-        }
+      if((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') && session) {
+        await bootSignedInSession(session, `onAuthStateChange:${event}`);
       } else if(event === 'SIGNED_OUT') {
         showAuthScreen();
       }
@@ -3002,24 +3039,16 @@ function initApp() {
 
     if(session) {
       // Returning user — keep overlay up, load cloud data, then reveal app
-      ge('loadingText').textContent = 'Loading your data…';
-      currentUser = session.user;
-      try {
-        await loadFromSupabase();
-        showApp(session.user);
-        initApp();
-        syncChip('ok','✓ Up to date', 2000);
-      } finally {
-        dismissOverlay();
-      }
+      await bootSignedInSession(session, 'getSession');
     } else {
       // No session — hide overlay immediately and show auth screen
-      ov.classList.add('hidden');
+      if(ov) ov.classList.add('hidden');
       ge('authScreen').classList.remove('hidden');
     }
   } catch(err) {
     console.error('Startup error:', err);
-    ge('loadingOverlay').classList.add('hidden');
+    const overlay = ge('loadingOverlay');
+    if(overlay) overlay.classList.add('hidden');
     ge('authScreen').classList.remove('hidden');
   }
 })();
