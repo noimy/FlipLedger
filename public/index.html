@@ -1140,6 +1140,11 @@ let startupInFlight = false;
 let appReady = false;
 const AUTH_BOOT_TIMEOUT_MS = 5500;
 const AUTH_OP_TIMEOUT_MS   = 8000;
+const AUTH_BOOT_OP_TIMEOUT_MS = 12000;
+const AUTH_BOOT_RETRIES = 3;
+const AUTH_BOOT_RETRY_DELAY_MS = 650;
+const INITIAL_CLOUD_LOAD_RETRIES = 2;
+const INITIAL_CLOUD_LOAD_RETRY_DELAY_MS = 450;
 let startupGuardTimer = null;
 let startupResolved = false;
 
@@ -1194,6 +1199,60 @@ async function withTimeout(promise, ms, label='Operation') {
       }
     );
   });
+}
+
+function isTimeoutError(err) {
+  return String(err?.message || '').toLowerCase().includes('timed out');
+}
+
+function isRecoverableAuthError(err) {
+  const msg = String(err?.message || '').toLowerCase();
+  return (
+    isTimeoutError(err) ||
+    msg.includes('network') ||
+    msg.includes('failed to fetch') ||
+    msg.includes('fetch')
+  );
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function getBootstrapSession() {
+  let lastErr = null;
+  for(let attempt = 1; attempt <= AUTH_BOOT_RETRIES; attempt++) {
+    try {
+      const {data:{session}, error:sessionErr} = await withTimeout(
+        supa.auth.getSession(),
+        AUTH_BOOT_OP_TIMEOUT_MS,
+        'Session check'
+      );
+      if(sessionErr) throw sessionErr;
+      if(session?.user) return { session, source: 'getSession' };
+
+      const {data:{user}, error:userErr} = await withTimeout(
+        supa.auth.getUser(),
+        AUTH_BOOT_OP_TIMEOUT_MS,
+        'User check'
+      );
+      if(userErr) throw userErr;
+      if(user) return { session: { user }, source: 'getUser' };
+
+      return { session: null, source: 'none' };
+    } catch(err) {
+      lastErr = err;
+      const canRetry = attempt < AUTH_BOOT_RETRIES && isRecoverableAuthError(err);
+      if(!canRetry) break;
+      await sleep(AUTH_BOOT_RETRY_DELAY_MS * attempt);
+    }
+  }
+
+  if(lastErr && isRecoverableAuthError(lastErr)) {
+    return { session: null, source: 'recoverable_error', recoverableError: lastErr };
+  }
+  if(lastErr) throw lastErr;
+  return { session: null, source: 'none' };
 }
 
 function armStartupGuard() {
@@ -3333,6 +3392,15 @@ async function loadFromSupabase(expectedMutationTick=null) {
   return true;
 }
 
+async function loadFromSupabaseWithRetry(expectedMutationTick=null) {
+  for(let attempt = 1; attempt <= INITIAL_CLOUD_LOAD_RETRIES; attempt++) {
+    const loaded = await loadFromSupabase(expectedMutationTick);
+    if(loaded) return true;
+    if(attempt < INITIAL_CLOUD_LOAD_RETRIES) await sleep(INITIAL_CLOUD_LOAD_RETRY_DELAY_MS * attempt);
+  }
+  return false;
+}
+
 async function bootSignedInSession(session, source='unknown') {
   if(!session?.user || startupInFlight) return;
   if(appReady && currentUser?.id === session.user.id) return;
@@ -3350,7 +3418,7 @@ async function bootSignedInSession(session, source='unknown') {
     ensureAppBooted(session.user);
 
     // Intentional: show cached/local data first for fast startup, then hydrate from cloud.
-    const loaded = await loadFromSupabase(bootMutationTick);
+    const loaded = await loadFromSupabaseWithRetry(bootMutationTick);
     if(!loaded) {
       console.warn(`Cloud load failed during startup (source: ${source}); using local data fallback.`);
       syncChip('err','⚠ Using local data', 3500);
@@ -3399,26 +3467,38 @@ function initApp() {
 
     // Listen for auth state changes (handles login, logout, token refresh)
     supa.auth.onAuthStateChange(async (event, session) => {
-      if((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') && session) {
-        await bootSignedInSession(session, `onAuthStateChange:${event}`);
-      } else if(event === 'SIGNED_OUT') {
-        showAuthScreen();
+      try {
+        if((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') && session?.user) {
+          if(appReady && currentUser?.id === session.user.id) {
+            console.debug(`Auth event ${event}: user already active; refreshing currentUser only.`);
+            currentUser = session.user;
+            return;
+          }
+          await bootSignedInSession(session, `onAuthStateChange:${event}`);
+        } else if(event === 'SIGNED_OUT') {
+          if(!guestMode) showAuthScreen();
+        }
+      } catch(err) {
+        console.error(`Auth state handler failed (${event}):`, err);
       }
     });
 
-    // Check for an existing session on page load
-    const {data:{session}, error:sessionErr} = await withTimeout(
-      supa.auth.getSession(),
-      AUTH_OP_TIMEOUT_MS,
-      'Session check'
-    );
-
-    if(sessionErr) throw sessionErr;
+    // Check for an existing session on page load (with retry + user fallback)
+    const {session, source, recoverableError} = await getBootstrapSession();
 
     if(session) {
       // Returning user — show app immediately, then sync cloud data in background
-      await bootSignedInSession(session, 'getSession');
+      await bootSignedInSession(session, source);
     } else {
+      if(recoverableError) {
+        console.warn('Bootstrap session check had recoverable errors:', recoverableError);
+      }
+      if(currentUser && !guestMode) {
+        startupResolved = true;
+        clearTimeout(startupGuardTimer);
+        dismissOverlay();
+        return;
+      }
       // No session — hide overlay immediately and show auth screen
       if(ov) ov.classList.add('hidden');
       startupResolved = true;
@@ -3427,6 +3507,13 @@ function initApp() {
     }
   } catch(err) {
     console.error('Startup error:', err);
+    if(currentUser && !guestMode) {
+      startupResolved = true;
+      clearTimeout(startupGuardTimer);
+      dismissOverlay();
+      syncChip('err', '⚠ Network issue — staying signed in', 3500);
+      return;
+    }
     const overlay = ge('loadingOverlay');
     if(overlay) overlay.classList.add('hidden');
     startupResolved = true;
