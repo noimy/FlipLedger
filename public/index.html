@@ -57,6 +57,7 @@
     position:fixed;inset:0;z-index:9998;background:var(--bg);
     display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;
   }
+  #loadingOverlay.hidden{display:none;}
   .loading-spinner{
     width:28px;height:28px;border:3px solid var(--border2);
     border-top-color:var(--accent);border-radius:50%;
@@ -395,97 +396,6 @@
   /* ── SCROLLBAR ── */
   ::-webkit-scrollbar{width:4px;}::-webkit-scrollbar-track{background:var(--surface);}::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px;}
 
-  /* ── SYNC PROGRESS BAR ── */
-  #syncProgressBar {
-    position:fixed;top:0;left:0;right:0;height:2px;z-index:99999;
-    pointer-events:none;
-    opacity:0;
-    transition:opacity 0.2s ease;
-  }
-  #syncProgressBar.visible { opacity:1; }
-  #syncProgressBar .bar-fill {
-    height:100%;
-    background:linear-gradient(90deg, var(--accent), var(--accent-light), var(--accent));
-    background-size:200% 100%;
-    border-radius:0 2px 2px 0;
-    width:0%;
-    transition:width 0.4s ease;
-    animation:shimmer-bar 1.4s linear infinite;
-  }
-  @keyframes shimmer-bar {
-    0%   { background-position:200% center; }
-    100% { background-position:-200% center; }
-  }
-
-  /* ── SYNC STATUS CHIP ── */
-  #syncStatus {
-    display:inline-flex;align-items:center;gap:5px;
-    padding:3px 9px;border-radius:20px;
-    font-size:10px;font-weight:600;
-    opacity:0;transform:translateY(-2px);
-    transition:opacity 0.2s ease,transform 0.2s ease;
-    pointer-events:none;
-    white-space:nowrap;
-  }
-  #syncStatus.visible { opacity:1;transform:translateY(0); }
-  #syncStatus.syncing {
-    background:rgba(61,140,110,0.12);
-    border:1px solid rgba(61,140,110,0.25);
-    color:var(--accent-light);
-  }
-  #syncStatus.success {
-    background:rgba(61,140,110,0.12);
-    border:1px solid rgba(61,140,110,0.25);
-    color:var(--accent-light);
-  }
-  #syncStatus.error {
-    background:var(--red-dim);
-    border:1px solid rgba(140,74,74,0.3);
-    color:var(--red-light);
-  }
-  .sync-dot {
-    width:5px;height:5px;border-radius:50%;
-    background:currentColor;flex-shrink:0;
-  }
-  .sync-dot.pulse { animation:sync-pulse 1s ease-in-out infinite; }
-  @keyframes sync-pulse {
-    0%,100% { opacity:1;transform:scale(1); }
-    50% { opacity:0.4;transform:scale(0.7); }
-  }
-
-  /* ── SKELETON LOADERS ── */
-  .skeleton {
-    background:linear-gradient(90deg,var(--surface2) 25%,var(--surface3) 50%,var(--surface2) 75%);
-    background-size:400% 100%;
-    animation:skeleton-shimmer 1.4s ease infinite;
-    border-radius:4px;
-  }
-  @keyframes skeleton-shimmer {
-    0%   { background-position:100% center; }
-    100% { background-position:-100% center; }
-  }
-  .stat-card.skeleton-card { pointer-events:none; }
-  .stat-card.skeleton-card .stat-label,
-  .stat-card.skeleton-card .stat-value,
-  .stat-card.skeleton-card .stat-sub { visibility:hidden; }
-  .stat-card.skeleton-card::after {
-    content:'';display:block;
-    position:absolute;inset:10px 12px;
-    background:linear-gradient(90deg,var(--surface2) 25%,var(--surface3) 50%,var(--surface2) 75%);
-    background-size:400% 100%;
-    animation:skeleton-shimmer 1.4s ease infinite;
-    border-radius:4px;
-  }
-  .stat-card { position:relative; }
-
-  /* ── LOADING OVERLAY — upgraded ── */
-  #loadingOverlay {
-    opacity:0;
-    transition:opacity 0.2s ease;
-  }
-  #loadingOverlay.visible { opacity:1; }
-  #loadingOverlay.hidden { display:none!important; }
-
   /* ── INVENTORY ── */
   .inv-stock-badge{display:inline-flex;align-items:center;padding:2px 7px;border-radius:12px;font-size:10px;font-weight:700;}
   .inv-stock-ok{background:var(--accent-dim);color:var(--accent-light);}
@@ -502,9 +412,6 @@
 </style>
 </head>
 <body>
-
-<!-- ═══ SYNC PROGRESS BAR ═══ -->
-<div id="syncProgressBar"><div class="bar-fill" id="syncBarFill"></div></div>
 
 <!-- ═══ LOADING OVERLAY ═══ -->
 <div id="loadingOverlay">
@@ -593,10 +500,6 @@
       <div class="topbar-date" id="pageDate"></div>
     </div>
     <div class="topbar-actions">
-      <div id="syncStatus" class="syncing">
-        <div class="sync-dot pulse" id="syncDot"></div>
-        <span id="syncStatusText">Syncing…</span>
-      </div>
       <div class="user-badge" id="userBadge" style="display:none;"><div class="dot"></div><span id="userEmail" style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span></div>
       <button class="sync-btn" id="syncBtn" style="display:none;" onclick="syncToSupabase(true)" title="Sync data to cloud">⟳ Sync</button>
       <button class="sign-out-btn" id="signOutBtn" style="display:none;" onclick="doSignOut()">Sign Out</button>
@@ -2838,18 +2741,16 @@ function useAsGuest() {
 
 function showAuthScreen() {
   ge('authScreen').classList.remove('hidden');
-  hideOverlay();
+  ge('loadingOverlay').classList.add('hidden');
   ge('userBadge').style.display  = 'none';
   ge('syncBtn').style.display    = 'none';
   ge('signOutBtn').style.display = 'none';
-  const sc = ge('syncStatus');
-  if(sc) sc.classList.remove('visible');
 }
 
 function showApp(user) {
   currentUser = user;
   ge('authScreen').classList.add('hidden');
-  hideOverlay();
+  ge('loadingOverlay').classList.add('hidden');
   ge('userBadge').style.display  = 'flex';
   ge('syncBtn').style.display    = 'inline-block';
   ge('signOutBtn').style.display = 'inline-block';
@@ -2881,100 +2782,10 @@ function showApp(user) {
 // ═══════════════════════════════════════════
 let syncTimer = null;
 
-// ── SYNC UI HELPERS ──────────────────────────────────
-let _syncStatusTimer = null;
-
-function showSyncChip(state, text) {
-  const el    = ge('syncStatus');
-  const dot   = ge('syncDot');
-  const label = ge('syncStatusText');
-  if(!el) return;
-  el.className = state; // 'syncing' | 'success' | 'error'
-  label.textContent = text;
-  dot.className = 'sync-dot' + (state === 'syncing' ? ' pulse' : '');
-  clearTimeout(_syncStatusTimer);
-  requestAnimationFrame(() => { el.classList.add('visible'); });
-}
-
-function hideSyncChip(delay=1400) {
-  _syncStatusTimer = setTimeout(() => {
-    const el = ge('syncStatus');
-    if(el) el.classList.remove('visible');
-  }, delay);
-}
-
-function startProgressBar() {
-  const bar  = ge('syncProgressBar');
-  const fill = ge('syncBarFill');
-  if(!bar || !fill) return;
-  fill.style.transition = 'none';
-  fill.style.width = '0%';
-  bar.classList.add('visible');
-  requestAnimationFrame(() => {
-    fill.style.transition = 'width 2.5s cubic-bezier(0.1,0.6,0.4,1)';
-    fill.style.width = '82%';
-  });
-}
-
-function finishProgressBar(success=true) {
-  const bar  = ge('syncProgressBar');
-  const fill = ge('syncBarFill');
-  if(!bar || !fill) return;
-  fill.style.transition = 'width 0.25s ease';
-  fill.style.width = '100%';
-  setTimeout(() => {
-    bar.classList.remove('visible');
-    setTimeout(() => { fill.style.width='0%'; }, 220);
-  }, 300);
-}
-
-// Show skeleton on the stats grid while data loads
-function showStatsSkeleton() {
-  const grid = ge('statsGrid');
-  if(!grid || grid.children.length > 0) return;
-  for(let i=0;i<4;i++) {
-    const c = document.createElement('div');
-    c.className = 'stat-card skeleton-card';
-    c.innerHTML = '<div class="stat-label">Loading</div><div class="stat-value skeleton" style="width:80%;height:22px;margin:6px 0;"></div><div class="stat-sub skeleton" style="width:55%;height:12px;"></div>';
-    grid.appendChild(c);
-  }
-}
-
-function clearStatsSkeleton() {
-  const grid = ge('statsGrid');
-  if(!grid) return;
-  [...grid.querySelectorAll('.skeleton-card')].forEach(el => el.remove());
-}
-
-// ── SMART LOADING OVERLAY ─────────────────────────────
-let _overlayShowTimer  = null;
-let _overlayVisible    = false;
-
-function maybeShowOverlay(text='Loading your data…') {
-  // Only show full overlay if load takes >350ms (avoids flicker)
-  _overlayShowTimer = setTimeout(() => {
-    _overlayVisible = true;
-    const ov = ge('loadingOverlay');
-    if(ov && !ov.classList.contains('hidden')) {
-      ov.querySelector('.loading-text').textContent = text;
-      ov.classList.add('visible');
-    }
-  }, 350);
-}
-
-function hideOverlay() {
-  clearTimeout(_overlayShowTimer);
-  const ov = ge('loadingOverlay');
-  if(!ov) return;
-  ov.classList.remove('visible');
-  setTimeout(() => { ov.classList.add('hidden'); }, 220);
-  _overlayVisible = false;
-}
-
-// ── SYNC FUNCTIONS ────────────────────────────────────
 async function syncToSupabase(manual=false) {
   if(!currentUser || guestMode) return;
 
+  // Debounce auto-saves — only flush immediately on manual sync
   if(!manual) {
     clearTimeout(syncTimer);
     syncTimer = setTimeout(()=>_doSync(), 2000);
@@ -2987,9 +2798,6 @@ async function _doSync(showFeedback=false) {
   if(!currentUser) return;
   const btn = ge('syncBtn');
   if(btn) { btn.textContent='⟳ Syncing…'; btn.disabled=true; }
-
-  startProgressBar();
-  showSyncChip('syncing', 'Syncing…');
 
   const payload = {
     user_id  : currentUser.id,
@@ -3005,41 +2813,26 @@ async function _doSync(showFeedback=false) {
     .from('user_data')
     .upsert(payload, {onConflict:'user_id'});
 
-  finishProgressBar(!error);
   if(btn) { btn.textContent='⟳ Sync'; btn.disabled=false; }
 
   if(error) {
     console.error('Supabase sync error:', error.message);
-    showSyncChip('error', '✕ Sync failed');
-    hideSyncChip(3500);
     if(showFeedback) toast('✕ Sync failed: '+error.message);
   } else {
-    showSyncChip('success', '✓ Synced');
-    hideSyncChip(1800);
     if(showFeedback) toast('✓ Synced to cloud!');
   }
 }
 
 async function loadFromSupabase() {
   if(!currentUser) return false;
-
-  showSyncChip('syncing', 'Loading data…');
-  startProgressBar();
-  showStatsSkeleton();
-
   const {data, error} = await supa
     .from('user_data')
     .select('sales, expenses, deposits, inventory, invlog')
     .eq('user_id', currentUser.id)
     .single();
 
-  finishProgressBar(!error);
-  clearStatsSkeleton();
-
   if(error && error.code !== 'PGRST116') {
     console.error('Load error:', error.message);
-    showSyncChip('error', '✕ Load failed');
-    hideSyncChip(3500);
     return false;
   }
 
@@ -3055,9 +2848,6 @@ async function loadFromSupabase() {
     localStorage.setItem('fl_inventory', JSON.stringify(inventory));
     localStorage.setItem('fl_invlog',    JSON.stringify(invLog));
   }
-
-  showSyncChip('success', '✓ Up to date');
-  hideSyncChip(1600);
   return true;
 }
 
@@ -3082,10 +2872,10 @@ function initApp() {
     supa.auth.onAuthStateChange(async (event, session) => {
       if(event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
         if(!currentUser) { // First sign-in this session
+          ge('loadingOverlay').classList.remove('hidden');
           ge('authScreen').classList.add('hidden');
-          maybeShowOverlay('Loading your data…');
+          ge('loadingOverlay').querySelector('.loading-text').textContent = 'Loading your data…';
           await loadFromSupabase();
-          hideOverlay();
           showApp(session.user);
           initApp();
         }
@@ -3097,14 +2887,13 @@ function initApp() {
     // Check for existing session
     const {data:{session}} = await supa.auth.getSession();
     if(session) {
+      ge('loadingOverlay').querySelector('.loading-text').textContent = 'Loading your data…';
       currentUser = session.user;
-      maybeShowOverlay('Loading your data…');
       await loadFromSupabase();
-      hideOverlay();
       showApp(session.user);
       initApp();
     } else {
-      // No session — show auth screen immediately
+      // No session — show auth screen
       ge('loadingOverlay').classList.add('hidden');
       ge('authScreen').classList.remove('hidden');
     }
