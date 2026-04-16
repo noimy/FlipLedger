@@ -1,6 +1,7 @@
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_REQUESTS = 30;
 const MAX_TOKEN_LEN = 4096;
+const MAX_ORDERS_PER_SYNC = 1000;
 const limiter = new Map();
 
 function toFiniteNumber(value, fallback = 0, min = 0, max = 9_999_999) {
@@ -39,14 +40,21 @@ function getAllowedOrigins() {
 function applyCors(req, res) {
   const allowedOrigins = getAllowedOrigins();
   const reqOrigin = req.headers.origin;
-  const allowAny = allowedOrigins.length === 0;
-  const allowOrigin = allowAny
-    ? '*'
-    : (reqOrigin && allowedOrigins.includes(reqOrigin) ? reqOrigin : allowedOrigins[0]);
+  const allowOrigin = allowedOrigins.length === 0
+    ? (reqOrigin || 'null')
+    : (reqOrigin && allowedOrigins.includes(reqOrigin) ? reqOrigin : 'null');
   res.setHeader('Access-Control-Allow-Origin', allowOrigin);
   res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+}
+
+function isOriginAllowed(req) {
+  const allowedOrigins = getAllowedOrigins();
+  if(allowedOrigins.length === 0) return true;
+  const reqOrigin = String(req.headers.origin || '').trim();
+  if(!reqOrigin) return false;
+  return allowedOrigins.includes(reqOrigin);
 }
 
 function getClientIp(req) {
@@ -55,9 +63,12 @@ function getClientIp(req) {
   return fwd || real || req.socket?.remoteAddress || 'unknown';
 }
 
-function checkRateLimit(req) {
+function checkRateLimit(req, token = '') {
   const now = Date.now();
-  const key = getClientIp(req);
+  for (const [k, v] of limiter) {
+    if (now > v.resetAt) limiter.delete(k);
+  }
+  const key = `${getClientIp(req)}|${token.slice(0, 24)}`;
   const hit = limiter.get(key);
   if (!hit || now > hit.resetAt) {
     limiter.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
@@ -102,14 +113,14 @@ export default async function handler(req, res) {
   applyCors(req, res);
   if (req.method === 'OPTIONS') return res.status(204).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-  if (!checkRateLimit(req)) return res.status(429).json({ error: 'Too many requests. Please wait and try again.' });
-
+  if (!isOriginAllowed(req)) return res.status(403).json({ error: 'Origin not allowed' });
   const token = clampText(req.body?.token, MAX_TOKEN_LEN);
   const fromDate = String(req.body?.fromDate || '').trim();
   const toDate = String(req.body?.toDate || '').trim();
 
   if (!token) return res.status(400).json({ error: 'Missing eBay token' });
   if (token.length < 20) return res.status(400).json({ error: 'Invalid eBay token' });
+  if (!checkRateLimit(req, token)) return res.status(429).json({ error: 'Too many requests. Please wait and try again.' });
   if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(toDate)) {
     return res.status(400).json({ error: 'Invalid date range format. Use YYYY-MM-DD.' });
   }
@@ -149,7 +160,7 @@ export default async function handler(req, res) {
       const data = await ebayRes.json();
       const page = Array.isArray(data?.orders) ? data.orders : [];
       allOrders = allOrders.concat(page);
-      if (page.length < limit || allOrders.length >= 1000) break;
+      if (page.length < limit || allOrders.length >= MAX_ORDERS_PER_SYNC) break;
       offset += limit;
     }
 

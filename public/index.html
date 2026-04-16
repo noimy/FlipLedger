@@ -1144,6 +1144,7 @@ const STORAGE_SCHEMA_VERSION = 2;
 const MAX_PHOTO_FILE_BYTES = 4 * 1024 * 1024;
 const MAX_PHOTO_TOTAL_BYTES = 20 * 1024 * 1024;
 const HISTORY_RENDER_DEBOUNCE_MS = 100;
+const CLOUD_CLOCK_SKEW_TOLERANCE_MS = 5 * 60 * 1000;
 
 let supa = null;
 let currentUser = null;
@@ -1177,6 +1178,7 @@ let localMutationTick = 0;
 let lastLocalWriteAt = Number(localStorage.getItem(STORAGE_KEYS.localUpdatedAt) || 0);
 let lastCloudSyncAt = Number(localStorage.getItem(STORAGE_KEYS.cloudUpdatedAt) || 0);
 let historyRenderTimer = null;
+let idNonce = 0;
 
 // ── Security: strip HTML/script from any user text input
 function sanitizeText(str) {
@@ -1211,6 +1213,11 @@ function toInt(v, fallback = 0, min = 0, max = 999999999) {
   return Math.min(max, Math.max(min, n));
 }
 
+function generateId(offset = 0) {
+  idNonce = (idNonce + 1) % 1000;
+  return Date.now() * 1000000 + (idNonce * 1000) + Math.max(0, toInt(offset, 0, 0, 999));
+}
+
 function normalizeDateYmd(raw, fallback=today()) {
   const str = String(raw || '').trim();
   if(/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
@@ -1235,7 +1242,7 @@ function normalizePhotoArray(photos) {
   return out;
 }
 
-function sanitizeSaleRecord(s, fallbackId=Date.now()) {
+function sanitizeSaleRecord(s, fallbackId=generateId()) {
   const id = toInt(s?.id, fallbackId, 1);
   const date = normalizeDateYmd(s?.date);
   const title = sanitizeText(clampStr(s?.title || 'Untitled item', 200));
@@ -1260,7 +1267,7 @@ function sanitizeSaleRecord(s, fallbackId=Date.now()) {
   };
 }
 
-function sanitizeExpenseRecord(e, fallbackId=Date.now()) {
+function sanitizeExpenseRecord(e, fallbackId=generateId()) {
   return {
     id: toInt(e?.id, fallbackId, 1),
     name: sanitizeText(clampStr(e?.name || 'Expense', 200)),
@@ -1272,7 +1279,7 @@ function sanitizeExpenseRecord(e, fallbackId=Date.now()) {
   };
 }
 
-function sanitizeDepositRecord(d, fallbackId=Date.now()) {
+function sanitizeDepositRecord(d, fallbackId=generateId()) {
   return {
     id: toInt(d?.id, fallbackId, 1),
     amount: toNum(d?.amount, 0),
@@ -1281,7 +1288,7 @@ function sanitizeDepositRecord(d, fallbackId=Date.now()) {
   };
 }
 
-function sanitizeInventoryRecord(i, fallbackId=Date.now()) {
+function sanitizeInventoryRecord(i, fallbackId=generateId()) {
   return {
     id: toInt(i?.id, fallbackId, 1),
     name: sanitizeText(clampStr(i?.name || 'Inventory Item', 200)),
@@ -1294,7 +1301,7 @@ function sanitizeInventoryRecord(i, fallbackId=Date.now()) {
 
 function sanitizeInvLogRecord(x) {
   return {
-    id: toInt(x?.id, Date.now(), 1),
+    id: toInt(x?.id, generateId(), 1),
     itemId: toInt(x?.itemId, 0, 0),
     itemName: sanitizeText(clampStr(x?.itemName || '', 200)),
     date: normalizeDateYmd(x?.date),
@@ -1308,10 +1315,10 @@ function migrateStorageIfNeeded() {
   const current = toInt(localStorage.getItem(STORAGE_KEYS.schemaVersion), 1, 1);
   if(current >= STORAGE_SCHEMA_VERSION) return;
 
-  sales = Array.isArray(sales) ? sales.map((s, i)=>sanitizeSaleRecord(s, Date.now()+i)) : [];
-  expenses = Array.isArray(expenses) ? expenses.map((e, i)=>sanitizeExpenseRecord(e, Date.now()+i)) : [];
-  deposits = Array.isArray(deposits) ? deposits.map((d, i)=>sanitizeDepositRecord(d, Date.now()+i)) : [];
-  inventory = Array.isArray(inventory) ? inventory.map((i, idx)=>sanitizeInventoryRecord(i, Date.now()+idx)) : [];
+  sales = Array.isArray(sales) ? sales.map((s, i)=>sanitizeSaleRecord(s, generateId(i))) : [];
+  expenses = Array.isArray(expenses) ? expenses.map((e, i)=>sanitizeExpenseRecord(e, generateId(i))) : [];
+  deposits = Array.isArray(deposits) ? deposits.map((d, i)=>sanitizeDepositRecord(d, generateId(i))) : [];
+  inventory = Array.isArray(inventory) ? inventory.map((i, idx)=>sanitizeInventoryRecord(i, generateId(idx))) : [];
   invLog = Array.isArray(invLog) ? invLog.map(sanitizeInvLogRecord) : [];
   localStorage.setItem(STORAGE_KEYS.schemaVersion, String(STORAGE_SCHEMA_VERSION));
 }
@@ -1325,15 +1332,17 @@ function loadStateFromStorage() {
   migrateStorageIfNeeded();
 }
 
-function persistStateToLocalStorage() {
+function persistStateToLocalStorage(markLocalWrite=true) {
   try {
     localStorage.setItem(STORAGE_KEYS.sales, JSON.stringify(sales));
     localStorage.setItem(STORAGE_KEYS.expenses, JSON.stringify(expenses));
     localStorage.setItem(STORAGE_KEYS.deposits, JSON.stringify(deposits));
     localStorage.setItem(STORAGE_KEYS.inventory, JSON.stringify(inventory));
     localStorage.setItem(STORAGE_KEYS.invLog, JSON.stringify(invLog));
-    lastLocalWriteAt = Date.now();
-    localStorage.setItem(STORAGE_KEYS.localUpdatedAt, String(lastLocalWriteAt));
+    if(markLocalWrite) {
+      lastLocalWriteAt = Date.now();
+      localStorage.setItem(STORAGE_KEYS.localUpdatedAt, String(lastLocalWriteAt));
+    }
     localStorage.setItem(STORAGE_KEYS.schemaVersion, String(STORAGE_SCHEMA_VERSION));
     return true;
   } catch(err) {
@@ -1344,9 +1353,15 @@ function persistStateToLocalStorage() {
 }
 
 function mergeById(localArr, remoteArr) {
+  // Conflict strategy: local record wins on same ID to protect unsynced edits on this device.
   const byId = new Map();
-  (remoteArr || []).forEach(item => byId.set(String(item?.id), item));
-  (localArr || []).forEach(item => byId.set(String(item?.id), item));
+  const pushItem = (item) => {
+    const id = item?.id;
+    if(id === null || id === undefined || id === '') return;
+    byId.set(String(id), item);
+  };
+  (remoteArr || []).forEach(pushItem);
+  (localArr || []).forEach(pushItem);
   return Array.from(byId.values()).sort((a,b)=>(+b.id||0)-(+a.id||0));
 }
 
@@ -1694,8 +1709,9 @@ function handlePhotoAdd(type, input) {
     accepted++;
     const reader = new FileReader();
     reader.onload = e => {
-      stagingPhotos[type].push(String(e.target.result || ''));
+      const dataUrl = String(e.target.result || '');
       loaded++;
+      if(dataUrl.startsWith('data:image/')) stagingPhotos[type].push(dataUrl);
       if(loaded === accepted) renderStagingThumbs(type);
     };
     reader.readAsDataURL(file);
@@ -1973,9 +1989,12 @@ function handleEditPhotoAdd(type, input) {
     accepted++;
     const reader = new FileReader();
     reader.onload = ev => {
-      if(type === 'sale')    editSalePhotos.push(String(ev.target.result || ''));
-      if(type === 'expense') editExpensePhotos.push(String(ev.target.result || ''));
+      const dataUrl = String(ev.target.result || '');
       loaded++;
+      if(dataUrl.startsWith('data:image/')) {
+        if(type === 'sale')    editSalePhotos.push(dataUrl);
+        if(type === 'expense') editExpensePhotos.push(dataUrl);
+      }
       if(loaded === accepted) {
         if(type === 'sale')    renderEditSalePhotos();
         if(type === 'expense') renderEditExpensePhotos();
@@ -2167,7 +2186,7 @@ function submitSale() {
   }
 
   const newSale = sanitizeSaleRecord({
-    id:Date.now(), title, date,
+    id:generateId(), title, date,
     platform : clampStr(gv('f_platform'), 60),
     sold     : +gv('f_sold')||0, cogs:+gv('f_cogs')||0,
     shipping : +gv('f_shipping')||0, salestax:+gv('f_salestax')||0,
@@ -2428,7 +2447,7 @@ function addExpense(){
   if(!name)return alert('Enter expense name.');
   if(!amount||amount<=0)return alert('Enter a valid amount.');
   const newExpense = sanitizeExpenseRecord({
-    id:Date.now(),name,amount,category:gv('e_cat'),
+    id:generateId(),name,amount,category:gv('e_cat'),
     date:ge('e_date').value||today(),notes:gv('e_notes'),
     photos:[...stagingPhotos.expense]
   });
@@ -2518,7 +2537,7 @@ function renderTaxes(){
 function addDeposit(){
   const amount=parseFloat(ge('dep_amount').value);
   if(!amount||amount<=0)return alert('Enter a valid deposit amount.');
-  const newDeposit = {id:Date.now(),amount,date:ge('dep_date').value||today(),note:gv('dep_note')};
+  const newDeposit = {id:generateId(),amount,date:ge('dep_date').value||today(),note:gv('dep_note')};
   deposits.unshift(newDeposit);
   save();
   flagHighlight('deposits', newDeposit.id);
@@ -2701,10 +2720,10 @@ function confirmImport(){
     if(totalExisting > 0){
       if(!confirm(`This will permanently replace all your current data (${sales.length} sales, ${expenses.length} expenses, ${deposits.length} deposits) with the backup. Are you sure?`)) return;
     }
-    sales = (importData.sales || []).map((s,i)=>sanitizeSaleRecord(s, Date.now()+i));
-    expenses = (importData.expenses || []).map((e,i)=>sanitizeExpenseRecord(e, Date.now()+i));
-    deposits = (importData.deposits || []).map((d,i)=>sanitizeDepositRecord(d, Date.now()+i));
-    inventory = isArr(importData.inventory) ? importData.inventory.map((x,i)=>sanitizeInventoryRecord(x, Date.now()+i)) : [];
+    sales = (importData.sales || []).map((s,i)=>sanitizeSaleRecord(s, generateId(i)));
+    expenses = (importData.expenses || []).map((e,i)=>sanitizeExpenseRecord(e, generateId(i)));
+    deposits = (importData.deposits || []).map((d,i)=>sanitizeDepositRecord(d, generateId(i)));
+    inventory = isArr(importData.inventory) ? importData.inventory.map((x,i)=>sanitizeInventoryRecord(x, generateId(i))) : [];
     invLog = isArr(importData.invLog) ? importData.invLog.map(sanitizeInvLogRecord) : [];
     if(importData.taxRate) ge('globalTaxRate').value = importData.taxRate;
   } else {
@@ -2713,10 +2732,10 @@ function confirmImport(){
     const existingDepositIds = new Set(deposits.map(d=>d.id));
     const existingInvIds     = new Set(inventory.map(i=>i.id));
 
-    const newSales    = (importData.sales    ||[]).map((s,i)=>sanitizeSaleRecord(s, Date.now()+i)).filter(s=>!existingSaleIds.has(s.id));
-    const newExpenses = (importData.expenses ||[]).map((e,i)=>sanitizeExpenseRecord(e, Date.now()+i)).filter(e=>!existingExpenseIds.has(e.id));
-    const newDeposits = (importData.deposits ||[]).map((d,i)=>sanitizeDepositRecord(d, Date.now()+i)).filter(d=>!existingDepositIds.has(d.id));
-    const newInv      = isArr(importData.inventory) ? importData.inventory.map((x,i)=>sanitizeInventoryRecord(x, Date.now()+i)).filter(i=>!existingInvIds.has(i.id)) : [];
+    const newSales    = (importData.sales    ||[]).map((s,i)=>sanitizeSaleRecord(s, generateId(i))).filter(s=>!existingSaleIds.has(s.id));
+    const newExpenses = (importData.expenses ||[]).map((e,i)=>sanitizeExpenseRecord(e, generateId(i))).filter(e=>!existingExpenseIds.has(e.id));
+    const newDeposits = (importData.deposits ||[]).map((d,i)=>sanitizeDepositRecord(d, generateId(i))).filter(d=>!existingDepositIds.has(d.id));
+    const newInv      = isArr(importData.inventory) ? importData.inventory.map((x,i)=>sanitizeInventoryRecord(x, generateId(i))).filter(i=>!existingInvIds.has(i.id)) : [];
 
     sales     = [...sales,     ...newSales    ].sort((a,b)=>b.id-a.id);
     expenses  = [...expenses,  ...newExpenses ].sort((a,b)=>b.id-a.id);
@@ -2783,7 +2802,7 @@ ge('editDepositModal').addEventListener('click', function(e){ if(e.target===this
 // EBAY IMPORT MODAL — TAB SWITCHING
 // ═══════════════════════════════════════════
 let ebayPendingOrders = [];
-function normalizeImportedSale(o, fallbackId=Date.now()) {
+function normalizeImportedSale(o, fallbackId=generateId()) {
   return sanitizeSaleRecord({
     id: fallbackId,
     title: o?.title || 'eBay Item',
@@ -2811,7 +2830,8 @@ function openEbayModal() {
   ge('ebayApiStatus').style.display   = 'none';
   // Set default date range to last 90 days
   const to   = new Date();
-  const savedLastSync = localStorage.getItem(STORAGE_KEYS.ebayLastSyncToDate);
+  const savedLastSyncRaw = localStorage.getItem(STORAGE_KEYS.ebayLastSyncToDate) || '';
+  const savedLastSync = /^\d{4}-\d{2}-\d{2}$/.test(savedLastSyncRaw) ? savedLastSyncRaw : '';
   const from = savedLastSync ? new Date(savedLastSync + 'T12:00:00') : new Date();
   if(savedLastSync) from.setDate(from.getDate()+1);
   else from.setDate(from.getDate()-90);
@@ -2938,7 +2958,7 @@ function readEbayCsv(input) {
         if(orderId && existingNotes.has(`eBay Order: ${orderId}`)) continue;
 
         ebayPendingOrders.push(normalizeImportedSale({
-          id       : Date.now() + i,
+          id       : generateId(i),
           title,
           date     : parseDate(rawDate),
           platform : 'eBay',
@@ -2951,7 +2971,7 @@ function readEbayCsv(input) {
           otherfee : 0,
           notes    : orderId ? `eBay Order: ${orderId}` : '',
           photos   : []
-        }, Date.now() + i));
+        }, generateId(i)));
       }
 
       if(!ebayPendingOrders.length) {
@@ -3048,15 +3068,15 @@ async function syncEbayApi() {
     // Filter out already-imported orders by their eBay order ID (stored in notes)
     const existingNotes = new Set(sales.map(s => s.notes || ''));
     const base          = Date.now();
-    const existingDedupe = new Set(sales.map(s => `${s.date}|${s.title}|${(+s.sold||0).toFixed(2)}`));
-    const newOrders = orders
-      .map((o, i) => normalizeImportedSale(o, base + i))
+    const toCents = v => Math.round((+v || 0) * 100);
+    const existingDedupe = new Set(sales.map(s => `${s.date}|${s.title}|${toCents(s.sold)}`));
+    const normalizedOrders = orders.map((o, i) => normalizeImportedSale(o, base + i));
+    const newOrders = normalizedOrders
       .filter(o => {
         const orderId = (o.notes || '').replace('eBay Order: ', '').trim();
-        const dedupeKey = `${o.date}|${o.title}|${(+o.sold||0).toFixed(2)}`;
+        const dedupeKey = `${o.date}|${o.title}|${toCents(o.sold)}`;
         return (orderId ? !existingNotes.has(`eBay Order: ${orderId}`) : !existingDedupe.has(dedupeKey));
-      })
-      .map((o, i) => ({ ...o, id: base + i }));
+      });
 
     if(!newOrders.length) {
       statusEl.style.background = 'var(--yellow-dim)';
@@ -3118,7 +3138,7 @@ function addInventoryItem() {
   const stock = Math.max(0, Math.min(99999, parseInt(ge('inv_stock').value)||0));
   if(!name) return alert('Enter an item name.');
   const newItem = {
-    id    : Date.now(),
+    id    : generateId(),
     name,
     sku   : clampStr(sanitizeText(ge('inv_sku').value.trim()), 80),
     stock,
@@ -3254,7 +3274,7 @@ function renderInventory() {
 // INVENTORY — Stock engine
 // ═══════════════════════════════════════════
 function logInvMovement(itemId, itemName, change, reason, stockAfter) {
-  invLog.push({ id:Date.now(), date:today(), itemId, itemName, change, reason, stockAfter });
+  invLog.push({ id:generateId(), date:today(), itemId, itemName, change, reason, stockAfter });
   // Keep log to 500 entries
   if(invLog.length>500) invLog = invLog.slice(-500);
 }
@@ -3641,13 +3661,18 @@ async function loadFromSupabase(expectedMutationTick=null) {
       console.warn('Cloud load skipped to avoid overwriting newer local changes.');
       return false;
     }
-    const remoteSales = Array.isArray(data.sales) ? data.sales.map((s,i)=>sanitizeSaleRecord(s, Date.now()+i)) : [];
-    const remoteExpenses = Array.isArray(data.expenses) ? data.expenses.map((e,i)=>sanitizeExpenseRecord(e, Date.now()+i)) : [];
-    const remoteDeposits = Array.isArray(data.deposits) ? data.deposits.map((d,i)=>sanitizeDepositRecord(d, Date.now()+i)) : [];
-    const remoteInventory = Array.isArray(data.inventory) ? data.inventory.map((x,i)=>sanitizeInventoryRecord(x, Date.now()+i)) : [];
+    const remoteSales = Array.isArray(data.sales) ? data.sales.map((s,i)=>sanitizeSaleRecord(s, generateId(i))) : [];
+    const remoteExpenses = Array.isArray(data.expenses) ? data.expenses.map((e,i)=>sanitizeExpenseRecord(e, generateId(i))) : [];
+    const remoteDeposits = Array.isArray(data.deposits) ? data.deposits.map((d,i)=>sanitizeDepositRecord(d, generateId(i))) : [];
+    const remoteInventory = Array.isArray(data.inventory) ? data.inventory.map((x,i)=>sanitizeInventoryRecord(x, generateId(i))) : [];
     const remoteInvLog = Array.isArray(data.invlog) ? data.invlog.map(sanitizeInvLogRecord) : [];
     const remoteUpdatedAt = Date.parse(data.updated_at || '') || 0;
-    const localIsNewer = lastLocalWriteAt > remoteUpdatedAt && lastLocalWriteAt > (lastCloudSyncAt || 0);
+    // If local write time is newer than cloud's last update and newer than our last confirmed sync,
+    // we merge instead of replacing to avoid dropping unsynced changes (multi-device/interrupted sync case).
+    const hasRemoteTimestamp = remoteUpdatedAt > 0;
+    const localIsNewer = hasRemoteTimestamp &&
+      lastLocalWriteAt > (remoteUpdatedAt + CLOUD_CLOCK_SKEW_TOLERANCE_MS) &&
+      lastLocalWriteAt > ((lastCloudSyncAt || 0) + CLOUD_CLOCK_SKEW_TOLERANCE_MS);
 
     if(localIsNewer) {
       sales = mergeById(sales, remoteSales);
@@ -3666,7 +3691,7 @@ async function loadFromSupabase(expectedMutationTick=null) {
 
     lastCloudSyncAt = remoteUpdatedAt || Date.now();
     localStorage.setItem(STORAGE_KEYS.cloudUpdatedAt, String(lastCloudSyncAt));
-    persistStateToLocalStorage();
+    persistStateToLocalStorage(false);
   }
   return true;
 }
