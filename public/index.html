@@ -8,21 +8,6 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
-<style>
-  :root {
-    --bg:#0d0f12;--surface:#13161b;--surface2:#181c22;--surface3:#1d2229;
-    --border:#222730;--border2:#282e3a;
-    --accent:#3d8c6e;--accent-light:#4a9f7e;--accent-dim:rgba(61,140,110,0.12);
-    --red:#8c4a4a;--red-light:#b05c5c;--red-dim:rgba(140,74,74,0.15);
-    --yellow:#8a7840;--yellow-light:#a89050;--yellow-dim:rgba(138,120,64,0.12);
-    --blue:#3a6090;--blue-light:#4a74a8;--blue-dim:rgba(58,96,144,0.12);
-    --purple:#6a4a8c;--purple-light:#8a6aac;--purple-dim:rgba(106,74,140,0.12);
-    --text:#b8bfc9;--text2:#727a88;--text3:#4a5162;
-    --font:'Inter',sans-serif;--r:7px;
-  }
-  *{box-sizing:border-box;margin:0;padding:0;}
-  body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:12px;min-height:100vh;overflow-x:hidden;}
-
   /* ── AUTH SCREEN ── */
   #authScreen{
     position:fixed;inset:0;z-index:9999;
@@ -31,74 +16,55 @@
   }
   #authScreen.hidden{display:none;}
   .auth-box{
-    background:var(--surface);
-    border:1px solid var(--border2);
-    border-radius:16px;padding:36px 32px;width:380px;
-    box-shadow:0 32px 96px rgba(0,0,0,0.7);
-    animation:authIn .25s ease;
+    background:var(--surface);border:1px solid var(--border2);
+    border-radius:12px;padding:32px 28px;width:360px;
+    box-shadow:0 24px 80px rgba(0,0,0,0.6);
   }
-  @keyframes authIn{from{opacity:0;transform:translateY(12px);}to{opacity:1;transform:none;}}
-  .auth-logo{
-    font-size:22px;font-weight:800;color:var(--accent-light);
-    margin-bottom:4px;letter-spacing:-0.5px;
-    display:flex;align-items:center;gap:8px;
-  }
-  .auth-tagline{font-size:11px;color:var(--text3);margin-bottom:28px;letter-spacing:.2px;}
-  .auth-tabs{display:flex;gap:0;background:var(--surface2);border-radius:8px;padding:3px;margin-bottom:22px;}
+  .auth-logo{font-size:14px;font-weight:700;color:var(--accent-light);margin-bottom:6px;}
+  .auth-sub{font-size:11px;color:var(--text3);margin-bottom:24px;}
+  .auth-tabs{display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:20px;}
   .auth-tab{
-    flex:1;text-align:center;padding:7px;font-size:12px;font-weight:600;
-    cursor:pointer;border-radius:6px;color:var(--text3);
-    transition:all .15s;background:transparent;border:none;
+    flex:1;text-align:center;padding:8px;font-size:12px;font-weight:600;
+    cursor:pointer;border-bottom:2px solid transparent;color:var(--text3);
+    transition:all .12s;background:transparent;border-top:none;border-left:none;border-right:none;
     font-family:var(--font);
   }
-  .auth-tab.active{color:var(--text);background:var(--surface3);box-shadow:0 1px 4px rgba(0,0,0,0.4);}
-  .auth-field{display:flex;flex-direction:column;gap:4px;margin-bottom:13px;}
-  .auth-field label{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;font-weight:600;}
+  .auth-tab.active{color:var(--accent-light);border-bottom-color:var(--accent);}
+  .auth-field{display:flex;flex-direction:column;gap:4px;margin-bottom:12px;}
+  .auth-field label{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.7px;}
   .auth-field input{
     background:var(--surface2);border:1px solid var(--border2);color:var(--text);
-    font-family:var(--font);font-size:13px;padding:10px 12px;border-radius:8px;outline:none;
-    transition:border-color .12s,box-shadow .12s;
+    font-family:var(--font);font-size:13px;padding:8px 10px;border-radius:6px;outline:none;
   }
-  .auth-field input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(61,140,110,0.15);}
+  .auth-field input:focus{border-color:var(--accent);}
   .auth-btn{
-    width:100%;padding:11px;border-radius:8px;border:none;cursor:pointer;
-    background:var(--accent);color:#d0ede3;font-family:var(--font);
-    font-size:13px;font-weight:700;margin-top:6px;
-    transition:background .12s,transform .1s,box-shadow .12s;
-    box-shadow:0 4px 14px rgba(61,140,110,0.3);
+    width:100%;padding:10px;border-radius:6px;border:none;cursor:pointer;
+    background:var(--accent);color:#c8e8dd;font-family:var(--font);
+    font-size:13px;font-weight:700;margin-top:8px;transition:background .12s;
   }
-  .auth-btn:hover{background:var(--accent-light);transform:translateY(-1px);box-shadow:0 6px 20px rgba(61,140,110,0.4);}
-  .auth-btn:active{transform:translateY(0);}
-  .auth-btn:disabled{opacity:.45;cursor:default;transform:none;box-shadow:none;}
-  .auth-error{font-size:11px;color:var(--red-light);margin-top:10px;min-height:16px;text-align:center;line-height:1.4;}
-  .auth-divider{
-    display:flex;align-items:center;gap:10px;
-    font-size:10px;color:var(--text3);margin:16px 0 12px;
-  }
-  .auth-divider::before,.auth-divider::after{content:'';flex:1;height:1px;background:var(--border);}
+  .auth-btn:hover{background:var(--accent-light);}
+  .auth-btn:disabled{opacity:.5;cursor:default;}
+  .auth-error{font-size:11px;color:var(--red-light);margin-top:8px;min-height:16px;text-align:center;}
+  .auth-divider{text-align:center;font-size:10px;color:var(--text3);margin:14px 0 10px;}
   .auth-guest-btn{
-    width:100%;padding:9px;border-radius:8px;cursor:pointer;
+    width:100%;padding:8px;border-radius:6px;cursor:pointer;
     background:transparent;border:1px solid var(--border2);color:var(--text3);
-    font-family:var(--font);font-size:11px;transition:all .12s;
+    font-family:var(--font);font-size:12px;transition:all .12s;
   }
-  .auth-guest-btn:hover{border-color:var(--accent);color:var(--accent-light);background:var(--accent-dim);}
+  .auth-guest-btn:hover{border-color:var(--text3);color:var(--text2);}
   /* Loading overlay */
   #loadingOverlay{
     position:fixed;inset:0;z-index:9998;background:var(--bg);
-    display:flex;align-items:center;justify-content:center;flex-direction:column;gap:0;
+    display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;
   }
   #loadingOverlay.hidden{display:none;}
-  .loading-inner{display:flex;flex-direction:column;align-items:center;gap:20px;}
-  .loading-logo{font-size:28px;font-weight:800;color:var(--accent-light);letter-spacing:-0.5px;}
   .loading-spinner{
-    width:32px;height:32px;border:2px solid var(--border2);
+    width:28px;height:28px;border:3px solid var(--border2);
     border-top-color:var(--accent);border-radius:50%;
-    animation:spin .65s linear infinite;
+    animation:spin .7s linear infinite;
   }
   @keyframes spin{to{transform:rotate(360deg);}}
   .loading-text{font-size:12px;color:var(--text3);}
-  .loading-bar-wrap{width:160px;height:2px;background:var(--border2);border-radius:2px;overflow:hidden;}
-  .loading-bar-fill{height:100%;background:var(--accent);border-radius:2px;transition:width .3s ease;}
   /* User badge in topbar */
   .user-badge{
     display:flex;align-items:center;gap:6px;
@@ -119,6 +85,19 @@
     font-size:11px;cursor:pointer;transition:all .12s;
   }
   .sync-btn:hover{border-color:var(--accent);color:var(--accent-light);}
+  :root {
+    --bg:#0d0f12;--surface:#13161b;--surface2:#181c22;--surface3:#1d2229;
+    --border:#222730;--border2:#282e3a;
+    --accent:#3d8c6e;--accent-light:#4a9f7e;--accent-dim:rgba(61,140,110,0.12);
+    --red:#8c4a4a;--red-light:#b05c5c;--red-dim:rgba(140,74,74,0.15);
+    --yellow:#8a7840;--yellow-light:#a89050;--yellow-dim:rgba(138,120,64,0.12);
+    --blue:#3a6090;--blue-light:#4a74a8;--blue-dim:rgba(58,96,144,0.12);
+    --purple:#6a4a8c;--purple-light:#8a6aac;--purple-dim:rgba(106,74,140,0.12);
+    --text:#b8bfc9;--text2:#727a88;--text3:#4a5162;
+    --font:'Inter',sans-serif;--r:7px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:12px;min-height:100vh;overflow-x:hidden;}
 
   /* ── SIDEBAR ── */
   #sidebar{position:fixed;top:0;left:0;width:185px;height:100vh;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;z-index:100;}
@@ -436,21 +415,15 @@
 
 <!-- ═══ LOADING OVERLAY ═══ -->
 <div id="loadingOverlay">
-  <div class="loading-inner">
-    <div class="loading-logo">📦 FlipLedger</div>
-    <div class="loading-spinner"></div>
-    <div class="loading-bar-wrap">
-      <div class="loading-bar-fill" id="loadingBar" style="width:0%"></div>
-    </div>
-    <div class="loading-text" id="loadingStatus">Starting up…</div>
-  </div>
+  <div class="loading-spinner"></div>
+  <div class="loading-text">Loading FlipLedger…</div>
 </div>
 
 <!-- ═══ AUTH SCREEN ═══ -->
 <div id="authScreen" class="hidden">
   <div class="auth-box">
     <div class="auth-logo">📦 FlipLedger</div>
-    <div class="auth-tagline">Your reselling business, tracked everywhere</div>
+    <div class="auth-sub">eBay Reseller Accountant — your data, everywhere</div>
     <div class="auth-tabs">
       <button class="auth-tab active" id="tabLogin" onclick="switchAuthTab('login')">Sign In</button>
       <button class="auth-tab" id="tabSignup" onclick="switchAuthTab('signup')">Create Account</button>
@@ -468,7 +441,7 @@
     </div>
     <div class="auth-error" id="authError"></div>
     <div class="auth-divider">or</div>
-    <button class="auth-guest-btn" onclick="useAsGuest()">Continue without account (this device only)</button>
+    <button class="auth-guest-btn" onclick="useAsGuest()">Continue without account (device only)</button>
   </div>
 </div>
 
@@ -2760,7 +2733,6 @@ async function doSignOut() {
 function useAsGuest() {
   guestMode = true;
   ge('authScreen').classList.add('hidden');
-  ge('loadingOverlay').classList.add('hidden');
   ge('userBadge').style.display   = 'none';
   ge('syncBtn').style.display     = 'none';
   ge('signOutBtn').style.display  = 'none';
@@ -2778,7 +2750,7 @@ function showAuthScreen() {
 function showApp(user) {
   currentUser = user;
   ge('authScreen').classList.add('hidden');
-  ge('loadingOverlay').classList.add('hidden');  // hide overlay — app is fully rendered
+  ge('loadingOverlay').classList.add('hidden');
   ge('userBadge').style.display  = 'flex';
   ge('syncBtn').style.display    = 'inline-block';
   ge('signOutBtn').style.display = 'inline-block';
@@ -2894,49 +2866,18 @@ function initApp() {
 // ═══════════════════════════════════════════
 // STARTUP — check session, show auth or app
 // ═══════════════════════════════════════════
-
-// Sets loading bar progress + status text
-function setLoading(pct, msg) {
-  const bar = ge('loadingBar');
-  const txt = ge('loadingStatus');
-  if(bar) bar.style.width = pct + '%';
-  if(txt) txt.textContent = msg;
-}
-
-// Loads data, renders everything, THEN reveals the app in one shot
-async function bootIntoApp(user) {
-  currentUser = user;
-
-  // Show loading overlay, hide auth
-  ge('authScreen').classList.add('hidden');
-  ge('loadingOverlay').classList.remove('hidden');
-
-  setLoading(20, 'Authenticating…');
-  await new Promise(r => setTimeout(r, 80)); // let the browser paint
-
-  setLoading(45, 'Fetching your data…');
-  await loadFromSupabase();
-
-  setLoading(75, 'Building dashboard…');
-  await new Promise(r => setTimeout(r, 50));
-
-  // Run all rendering while overlay is still showing
-  initApp();
-
-  setLoading(100, 'Ready!');
-  await new Promise(r => setTimeout(r, 200)); // brief "Ready!" moment
-
-  // Now reveal the fully-rendered app
-  showApp(user);
-}
-
 (async function startup() {
   try {
     // Listen for auth state changes (handles login, logout, token refresh)
     supa.auth.onAuthStateChange(async (event, session) => {
       if(event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
         if(!currentUser) { // First sign-in this session
-          await bootIntoApp(session.user);
+          ge('loadingOverlay').classList.remove('hidden');
+          ge('authScreen').classList.add('hidden');
+          ge('loadingOverlay').querySelector('.loading-text').textContent = 'Loading your data…';
+          await loadFromSupabase();
+          showApp(session.user);
+          initApp();
         }
       } else if(event === 'SIGNED_OUT') {
         showAuthScreen();
@@ -2946,7 +2887,11 @@ async function bootIntoApp(user) {
     // Check for existing session
     const {data:{session}} = await supa.auth.getSession();
     if(session) {
-      await bootIntoApp(session.user);
+      ge('loadingOverlay').querySelector('.loading-text').textContent = 'Loading your data…';
+      currentUser = session.user;
+      await loadFromSupabase();
+      showApp(session.user);
+      initApp();
     } else {
       // No session — show auth screen
       ge('loadingOverlay').classList.add('hidden');
