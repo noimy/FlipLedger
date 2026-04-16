@@ -2737,7 +2737,7 @@ function setAuthBusy(busy) {
 }
 
 async function doLogin() {
-  if(!supa?.auth) return setAuthError('Cloud login is unavailable right now. You can continue as guest.');
+  if(!supa?.auth) return setAuthError('Cloud login is unavailable right now. Use "Continue without account (device only)".');
   const email    = ge('auth_email').value.trim();
   const password = ge('auth_password').value;
   if(!email||!password) return setAuthError('Enter email and password.');
@@ -2748,7 +2748,7 @@ async function doLogin() {
 }
 
 async function doSignup() {
-  if(!supa?.auth) return setAuthError('Cloud signup is unavailable right now. You can continue as guest.');
+  if(!supa?.auth) return setAuthError('Cloud signup is unavailable right now. Use "Continue without account (device only)".');
   const email = ge('auth_email2').value.trim();
   const pw1   = ge('auth_password2').value;
   const pw2   = ge('auth_password3').value;
@@ -2984,7 +2984,7 @@ async function bootSignedInSession(session, source='unknown') {
   try {
     const loaded = await loadFromSupabase();
     if(!loaded) {
-      console.warn(`Cloud load failed during ${source}; using local data fallback.`);
+      console.warn(`Cloud load failed during startup (source: ${source}); using local data fallback.`);
       syncChip('err','⚠ Using local data', 3500);
     }
     showApp(session.user);
