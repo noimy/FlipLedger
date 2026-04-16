@@ -135,6 +135,37 @@
   }
   *{box-sizing:border-box;margin:0;padding:0;}
   body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:12px;min-height:100vh;overflow-x:hidden;}
+  *:focus-visible{outline:2px solid var(--accent-light);outline-offset:2px;}
+
+  .is-pressed{transform:scale(.98)!important;opacity:.92;}
+  .value-updated{animation:valueFlash .35s ease;}
+  @keyframes valueFlash{0%{filter:brightness(1.35)}100%{filter:brightness(1)}}
+  .flash-success{animation:rowFlash .7s ease;}
+  .flash-danger{animation:rowDanger .7s ease;}
+  @keyframes rowFlash{0%{background:rgba(61,140,110,.18)}100%{background:transparent}}
+  @keyframes rowDanger{0%{background:rgba(140,74,74,.2)}100%{background:transparent}}
+  .inline-chip{
+    display:inline-flex;align-items:center;gap:5px;
+    font-size:9px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;
+    color:var(--accent-light);opacity:0;transform:translateY(-2px);
+    transition:opacity .14s ease,transform .14s ease;
+  }
+  .inline-chip.show{opacity:1;transform:translateY(0);}
+  .inline-chip .dot{width:5px;height:5px;border-radius:50%;background:var(--accent-light);}
+  .skeleton{
+    position:relative;overflow:hidden;background:var(--surface2);
+    border:1px solid var(--border2);border-radius:5px;min-height:14px;
+  }
+  .skeleton::after{
+    content:'';position:absolute;inset:0;transform:translateX(-100%);
+    background:linear-gradient(90deg,transparent,rgba(255,255,255,.05),transparent);
+    animation:skeletonShimmer 1s linear infinite;
+  }
+  @keyframes skeletonShimmer{100%{transform:translateX(100%)}}
+  .skeleton-line{height:11px;margin-bottom:6px;}
+  .skeleton-line:last-child{margin-bottom:0;}
+  .content-fade{animation:contentFade .16s ease;}
+  @keyframes contentFade{from{opacity:.55}to{opacity:1}}
 
   /* ── SIDEBAR ── */
   #sidebar{position:fixed;top:0;left:0;width:185px;height:100vh;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;z-index:100;}
@@ -145,6 +176,7 @@
   .nav-section{font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;padding:8px 14px 3px;font-weight:600;}
   .nav-item{display:flex;align-items:center;gap:8px;padding:7px 14px;cursor:pointer;border-left:2px solid transparent;color:var(--text3);font-size:12px;font-weight:500;transition:all 0.12s;user-select:none;}
   .nav-item:hover{color:var(--text2);background:rgba(255,255,255,0.02);}
+  .nav-item:active{transform:translateX(1px);}
   .nav-item.active{color:var(--accent-light);border-left-color:var(--accent);background:var(--accent-dim);}
   .nav-icon{font-size:12px;width:14px;text-align:center;}
   .sidebar-bottom{padding:12px 14px;border-top:1px solid var(--border);}
@@ -164,8 +196,9 @@
   .btn{padding:5px 11px;border-radius:5px;font-family:var(--font);font-size:11px;font-weight:600;cursor:pointer;border:none;transition:all 0.12s;}
   .btn-ghost{background:transparent;color:var(--text3);border:1px solid var(--border2);}
   .btn-ghost:hover{color:var(--text2);border-color:var(--text3);}
-  .btn-primary{background:var(--accent);color:#c8e8dd;}
+  .btn-primary{background:var(--accent);color:#c8e8dd;box-shadow:0 0 0 0 rgba(61,140,110,0);}
   .btn-primary:hover{background:var(--accent-light);}
+  .btn:active{transform:translateY(1px) scale(.985);}
 
   /* ── PAGES ── */
   .page{display:none;padding:16px 18px;}
@@ -446,6 +479,10 @@
   .inv-card-stock{font-size:18px;font-weight:700;}
   .inv-card-cost{font-size:10px;color:var(--text3);}
   .inv-card-actions{display:flex;gap:4px;margin-top:6px;}
+
+  @media (prefers-reduced-motion: reduce){
+    *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important;}
+  }
 </style>
 </head>
 <body>
@@ -661,6 +698,7 @@
         <div class="calc-item"><div class="calc-item-lbl">Est. Tax Owed</div><div class="calc-item-val r" id="cp_tax">$0.00</div></div>
       </div>
       <div class="form-footer">
+        <span class="inline-chip" id="saleActionChip"><span class="dot"></span><span>saved</span></span>
         <button class="btn btn-ghost" onclick="clearForm()">Clear</button>
         <button class="btn btn-primary" onclick="submitSale()">✓ Save Sale</button>
       </div>
@@ -677,7 +715,7 @@
       <button class="f-btn" onclick="setFilter('thisYear',this)">This Year</button>
       <span style="margin-left:auto;color:var(--text3);font-size:10px;" id="histCount"></span>
     </div>
-    <div class="tbl-wrap">
+    <div class="tbl-wrap" id="histWrap">
       <table><thead><tr>
         <th>Date</th><th>Item</th><th>Platform</th><th>Sold For</th><th>Refund</th><th>COGS</th><th>All Fees</th><th>Net Profit</th><th>Net ex-COGS</th><th>Margin</th><th>Tax Set-Aside</th><th>Photos</th><th></th>
       </tr></thead><tbody id="histBody"></tbody></table>
@@ -710,12 +748,12 @@
       </div>
       <div class="photo-thumbs" id="e_photo_thumbs"></div>
 
-      <div class="form-footer"><button class="btn btn-primary" onclick="addExpense()">+ Add Expense</button></div>
+      <div class="form-footer"><span class="inline-chip" id="expActionChip"><span class="dot"></span><span>saved</span></span><button class="btn btn-primary" onclick="addExpense()">+ Add Expense</button></div>
     </div>
     <div class="sec">By Category</div>
     <div class="cat-grid" id="expCats"></div>
     <div class="sec">All Expenses</div>
-    <div class="tbl-wrap">
+    <div class="tbl-wrap" id="expWrap">
       <table><thead><tr><th>Date</th><th>Name</th><th>Category</th><th>Amount</th><th>Notes</th><th>Photos</th><th></th></tr></thead>
       <tbody id="expBody"></tbody></table>
       <div id="expEmpty"><div class="empty"><div class="empty-icon">💸</div><div class="empty-title">No expenses logged</div><div>Track business expenses for accurate tax figures</div></div></div>
@@ -746,12 +784,12 @@
           <div class="fgrp"><label>Date</label><input type="date" id="dep_date"></div>
           <div class="fgrp span2"><label>Note</label><input type="text" id="dep_note" placeholder="e.g. Q1 set-aside, after Jan sales..."></div>
         </div>
-        <div class="form-footer"><button class="btn btn-primary" onclick="addDeposit()">+ Record Deposit</button></div>
+        <div class="form-footer"><span class="inline-chip" id="depActionChip"><span class="dot"></span><span>saved</span></span><button class="btn btn-primary" onclick="addDeposit()">+ Record Deposit</button></div>
       </div>
       <div class="card" id="savingsStatus"></div>
     </div>
     <div class="sec">Deposit History</div>
-    <div class="tbl-wrap">
+    <div class="tbl-wrap" id="depWrap">
       <table><thead><tr><th>Date</th><th>Note</th><th>Amount</th><th>Running Total</th><th></th></tr></thead>
       <tbody id="depBody"></tbody></table>
       <div id="depEmpty"><div class="empty"><div class="empty-icon">🏦</div><div class="empty-title">No deposits yet</div><div>Record money you've set aside for taxes</div></div></div>
@@ -769,13 +807,13 @@
       <div class="fgrp"><label>Unit Cost (COGS) $</label><input type="number" id="inv_cost" placeholder="0.00" step="0.01" min="0" max="999999"></div>
       <div class="fgrp span3"><label>Notes</label><input type="text" id="inv_notes" placeholder="Optional" maxlength="300"></div>
     </div>
-    <div class="form-footer"><button class="btn btn-primary" onclick="addInventoryItem()">+ Add Item</button></div>
+    <div class="form-footer"><span class="inline-chip" id="invActionChip"><span class="dot"></span><span>saved</span></span><button class="btn btn-primary" onclick="addInventoryItem()">+ Add Item</button></div>
   </div>
   <div class="sec">Inventory Items</div>
   <div id="invGrid" class="inv-grid"></div>
   <div id="invEmpty" style="display:none;"><div class="empty"><div class="empty-icon">📦</div><div class="empty-title">No inventory items yet</div><div>Add items above to track stock</div></div></div>
   <div class="sec">Stock Movement Log</div>
-  <div class="tbl-wrap">
+  <div class="tbl-wrap" id="invLogWrap">
     <table><thead><tr><th>Date</th><th>Item</th><th>Change</th><th>Reason</th><th>Stock After</th></tr></thead>
     <tbody id="invLogBody"></tbody></table>
     <div id="invLogEmpty"><div class="empty"><div class="empty-icon">📋</div><div class="empty-title">No movements yet</div><div>Stock changes appear here when sales are added or deleted</div></div></div>
@@ -1081,6 +1119,10 @@ let deposits  = JSON.parse(localStorage.getItem('fl_deposits')  || '[]');
 let inventory = JSON.parse(localStorage.getItem('fl_inventory') || '[]');
 let invLog    = JSON.parse(localStorage.getItem('fl_invlog')    || '[]');
 let histFilter = 'all';
+const prefersReducedMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+const uiFirstRender = {dashboard:false,history:false,expenses:false,inventory:false};
+const pendingHighlight = {history:null,expenses:null,deposits:null,inventory:null};
+const numberCache = new Map();
 
 // ── Security: strip HTML/script from any user text input
 function sanitizeText(str) {
@@ -1092,6 +1134,136 @@ function sanitizeText(str) {
 // ── Clamp a string to maxLen characters
 function clampStr(str, maxLen) {
   return String(str || '').slice(0, maxLen);
+}
+
+function showInlineChip(id) {
+  const chip = ge(id);
+  if(!chip) return;
+  chip.classList.add('show');
+  setTimeout(()=>chip.classList.remove('show'), 850);
+}
+
+function flagHighlight(scope, id) {
+  pendingHighlight[scope] = id;
+  setTimeout(()=>{ if(pendingHighlight[scope]===id) pendingHighlight[scope]=null; }, 1200);
+}
+
+function consumeHighlightClass(scope, id) {
+  return pendingHighlight[scope]===id ? 'flash-success' : '';
+}
+
+function flashEl(el, cls='flash-success') {
+  if(!el) return;
+  el.classList.remove('flash-success','flash-danger');
+  void el.offsetWidth;
+  el.classList.add(cls);
+  setTimeout(()=>el.classList.remove(cls), 750);
+}
+
+function animateNumberEl(el) {
+  if(!el) return;
+  const key = el.dataset.key || '';
+  const to  = parseFloat(el.dataset.value || '0');
+  const from = numberCache.has(key) ? numberCache.get(key) : to;
+  const decimals = parseInt(el.dataset.decimals || '2', 10);
+  const type = el.dataset.type || 'currency';
+  const sign = el.dataset.sign === '1';
+  const format = (v) => {
+    if(type === 'percent') return `${v.toFixed(decimals)}%`;
+    if(type === 'number') return `${v.toFixed(decimals)}`;
+    if(sign) return `${v>=0?'+':'-'}$${Math.abs(v).toFixed(decimals)}`;
+    return `$${v.toFixed(decimals)}`;
+  };
+
+  if(from !== to) el.classList.add('value-updated');
+  setTimeout(()=>el.classList.remove('value-updated'), 360);
+
+  if(prefersReducedMotion || from===to) {
+    el.textContent = format(to);
+    numberCache.set(key, to);
+    return;
+  }
+
+  const start = performance.now();
+  const duration = 280;
+  const step = (now) => {
+    const p = Math.min(1, (now - start) / duration);
+    const eased = 1 - Math.pow(1 - p, 3);
+    const cur = from + ((to - from) * eased);
+    el.textContent = format(cur);
+    if(p < 1) requestAnimationFrame(step);
+    else {
+      el.textContent = format(to);
+      numberCache.set(key, to);
+    }
+  };
+  requestAnimationFrame(step);
+}
+
+function animateAllNumbers(scopeEl) {
+  scopeEl?.querySelectorAll('.anim-num').forEach(animateNumberEl);
+}
+
+function buildSkeletonLines(count=3) {
+  return Array.from({length:count},()=>'<div class="skeleton skeleton-line"></div>').join('');
+}
+
+function showPageSkeleton(page) {
+  if(prefersReducedMotion) return;
+  if(page==='dashboard') {
+    ge('statsGrid').innerHTML = Array.from({length:4},()=>`<div class="stat-card">${buildSkeletonLines(3)}</div>`).join('');
+    ge('topSalesWrap').innerHTML = `<div style="padding:10px;">${buildSkeletonLines(5)}</div>`;
+    ge('monthlyChart').innerHTML = buildSkeletonLines(4);
+    ge('dashCats').innerHTML = Array.from({length:3},()=>`<div class="cat-card">${buildSkeletonLines(2)}</div>`).join('');
+  }
+  if(page==='history') {
+    ge('histEmpty').style.display='none';
+    ge('histBody').innerHTML = Array.from({length:4},()=>`<tr><td colspan="13"><div style="padding:6px 0;">${buildSkeletonLines(1)}</div></td></tr>`).join('');
+  }
+  if(page==='expenses') {
+    ge('expEmpty').style.display='none';
+    ge('expCats').innerHTML = Array.from({length:3},()=>`<div class="cat-card">${buildSkeletonLines(2)}</div>`).join('');
+    ge('expBody').innerHTML = Array.from({length:4},()=>`<tr><td colspan="7"><div style="padding:6px 0;">${buildSkeletonLines(1)}</div></td></tr>`).join('');
+  }
+  if(page==='inventory') {
+    ge('invEmpty').style.display='none';
+    ge('invLogEmpty').style.display='none';
+    ge('invGrid').innerHTML = Array.from({length:3},()=>`<div class="inv-card">${buildSkeletonLines(4)}</div>`).join('');
+    ge('invLogBody').innerHTML = Array.from({length:4},()=>`<tr><td colspan="5"><div style="padding:6px 0;">${buildSkeletonLines(1)}</div></td></tr>`).join('');
+  }
+}
+
+function renderPageContent(page) {
+  if(page==='dashboard') renderDashboard();
+  if(page==='analytics') renderAnalytics();
+  if(page==='history')   renderHistory();
+  if(page==='expenses')  renderExpenses();
+  if(page==='taxes')     renderTaxes();
+  if(page==='savings')   renderSavings();
+  if(page==='inventory') renderInventory();
+}
+
+function renderPage(page) {
+  if(!uiFirstRender[page] && ['dashboard','history','expenses','inventory'].includes(page)) {
+    if(prefersReducedMotion) {
+      renderPageContent(page);
+      uiFirstRender[page] = true;
+      return;
+    }
+    showPageSkeleton(page);
+    setTimeout(() => {
+      renderPageContent(page);
+      uiFirstRender[page] = true;
+    }, 90);
+    return;
+  }
+  renderPageContent(page);
+}
+
+function prewarmUiData() {
+  const warm = () => { sales.slice(0,30).forEach(s=>calcSale(s)); };
+  if('requestIdleCallback' in window) requestIdleCallback(warm, {timeout:300});
+  else setTimeout(warm, 80);
 }
 
 // Temp staging photos before a record is saved
@@ -1342,6 +1514,7 @@ function saveEditSale() {
   if(newInvItemId) adjustStockForSale(sales[idx], 'Sale edited');
 
   save();
+  flagHighlight('history', sales[idx].id);
   closeEditSale();
   renderHistory();
   toast('✓ Sale updated!');
@@ -1414,6 +1587,7 @@ function saveEditExpense() {
     photos   : [...editExpensePhotos]
   };
   save();
+  flagHighlight('expenses', expenses[idx].id);
   closeEditExpense();
   renderExpenses();
   toast('✓ Expense updated!');
@@ -1455,6 +1629,28 @@ document.addEventListener('keydown', ev => {
   if(ge('editExpenseModal').classList.contains('open')) { closeEditExpense();    return; }
 });
 
+function enhanceNavAccessibility() {
+  document.querySelectorAll('.nav-item').forEach((el) => {
+    el.setAttribute('tabindex', '0');
+    el.setAttribute('role', 'button');
+    if(el.dataset.kbReady==='1') return;
+    el.addEventListener('keydown', (e) => {
+      if(e.key==='Enter' || e.key===' ') {
+        e.preventDefault();
+        el.click();
+      }
+    });
+    el.dataset.kbReady='1';
+  });
+}
+
+document.addEventListener('pointerdown', (e) => {
+  const el = e.target.closest('button,.nav-item,.f-btn,.icon-btn,.photo-upload-zone,.modal-close,.auth-tab,.auth-btn,.auth-guest-btn,.sync-btn,.sign-out-btn');
+  if(!el) return;
+  el.classList.add('is-pressed');
+  setTimeout(()=>el.classList.remove('is-pressed'), 150);
+});
+
 // ═══════════════════════════════════════════
 // "View Photos" button renderer
 // ═══════════════════════════════════════════
@@ -1482,22 +1678,13 @@ function goTo(page) {
   const navIdx = navPages.indexOf(page);
   if(navIdx !== -1) document.querySelectorAll('.nav-item')[navIdx].classList.add('active');
   ge('pageTitle').textContent = titles[page] || page;
-  if(page==='dashboard') renderDashboard();
-  if(page==='analytics') renderAnalytics();
-  if(page==='history')   renderHistory();
-  if(page==='expenses')  renderExpenses();
-  if(page==='taxes')     renderTaxes();
-  if(page==='savings')   renderSavings();
-  if(page==='inventory') renderInventory();
+  renderPage(page);
+  if(page==='sales') setTimeout(()=>ge('f_title')?.focus(), 20);
 }
 
 function refreshAll() {
   const p = document.querySelector('.page.active')?.id?.replace('page-','');
-  if(p==='dashboard') renderDashboard();
-  if(p==='analytics') renderAnalytics();
-  if(p==='history')   renderHistory();
-  if(p==='taxes')     renderTaxes();
-  if(p==='savings')   renderSavings();
+  if(p) renderPageContent(p);
   calcLive();
 }
 
@@ -1616,7 +1803,12 @@ function submitSale() {
   };
   sales.unshift(newSale);
   if(invItemId) adjustStockForSale(newSale, 'sale');
-  save(); clearForm(); toast('✓ Sale saved!'); goTo('history');
+  save();
+  flagHighlight('history', newSale.id);
+  showInlineChip('saleActionChip');
+  clearForm();
+  toast('✓ Sale saved!');
+  goTo('history');
 }
 
 function clearForm(){
@@ -1629,6 +1821,7 @@ function clearForm(){
   if(cb) { cb.checked=false; ge('f_title').disabled=false; ge('f_title').style.opacity=''; ge('f_title_required').textContent='*'; }
   clearStagingPhotos('sale');
   calcLive();
+  ge('f_title')?.focus();
 }
 
 function deleteSale(id){
@@ -1637,6 +1830,7 @@ function deleteSale(id){
   if(s) restoreStockForSale(s, 'Sale deleted');
   sales=sales.filter(s=>s.id!==id);
   save();renderHistory();
+  flashEl(ge('histWrap'), 'flash-danger');
   if(ge('page-dashboard').classList.contains('active'))renderDashboard();
 }
 
@@ -1654,10 +1848,11 @@ function renderDashboard() {
   const avgM=ac.length?ac.reduce((a,c)=>a+c.margin,0)/ac.length:0;
 
   ge('statsGrid').innerHTML=`
-    <div class="stat-card"><div class="stat-label">Net Profit</div><div class="stat-value ${profit>=0?'g':'r'}">${profit>=0?'':'-'}$${Math.abs(profit).toFixed(2)}</div><div class="stat-sub">${sales.length} sale${sales.length!==1?'s':''} · avg ${avgM.toFixed(1)}% margin</div></div>
-    <div class="stat-card"><div class="stat-label">Gross Revenue</div><div class="stat-value b">$${rev.toFixed(2)}</div><div class="stat-sub">Total sold price across all sales</div></div>
-    <div class="stat-card"><div class="stat-label">Est. Tax Set-Aside</div><div class="stat-value r">$${tax.toFixed(2)}</div><div class="stat-sub">At ${tr}% rate</div></div>
-    <div class="stat-card"><div class="stat-label">Net After Expenses</div><div class="stat-value ${net>=0?'g':'r'}">${net>=0?'':'-'}$${Math.abs(net).toFixed(2)}</div><div class="stat-sub">Biz expenses: $${expTotal.toFixed(2)}</div></div>`;
+    <div class="stat-card content-fade"><div class="stat-label">Net Profit</div><div class="stat-value ${profit>=0?'g':'r'} anim-num" data-key="dash-net-profit" data-value="${profit}" data-sign="1">${profit>=0?'+':'-'}$${Math.abs(profit).toFixed(2)}</div><div class="stat-sub">${sales.length} sale${sales.length!==1?'s':''} · avg ${avgM.toFixed(1)}% margin</div></div>
+    <div class="stat-card content-fade"><div class="stat-label">Gross Revenue</div><div class="stat-value b anim-num" data-key="dash-gross-revenue" data-value="${rev}">$${rev.toFixed(2)}</div><div class="stat-sub">Total sold price across all sales</div></div>
+    <div class="stat-card content-fade"><div class="stat-label">Est. Tax Set-Aside</div><div class="stat-value r anim-num" data-key="dash-tax-set-aside" data-value="${tax}">$${tax.toFixed(2)}</div><div class="stat-sub">At ${tr}% rate</div></div>
+    <div class="stat-card content-fade"><div class="stat-label">Net After Expenses</div><div class="stat-value ${net>=0?'g':'r'} anim-num" data-key="dash-net-after-expenses" data-value="${net}" data-sign="1">${net>=0?'+':'-'}$${Math.abs(net).toFixed(2)}</div><div class="stat-sub">Biz expenses: $${expTotal.toFixed(2)}</div></div>`;
+  animateAllNumbers(ge('statsGrid'));
 
   const sorted=[...sales].map(s=>({...s,...calcSale(s)})).sort((a,b)=>b.profit-a.profit).slice(0,6);
   ge('topSalesWrap').innerHTML=sorted.length===0
@@ -1733,13 +1928,14 @@ function renderAnalytics() {
   const bestSale=ac.reduce((a,b)=>b.profit>a.profit?b:a,ac[0]);
   const worstSale=ac.reduce((a,b)=>b.profit<a.profit?b:a,ac[0]);
   ge('kpiRow').innerHTML=[
-    ['ROI',roi.toFixed(1)+'%',roi>=50?'g':roi>=20?'y':'r'],
-    ['Fee Ratio',feePct.toFixed(1)+'%',feePct<=20?'g':feePct<=35?'y':'r'],
-    ['Best Sale','$'+bestSale.profit.toFixed(2),'g'],
-    ['Worst Sale',(worstSale.profit>=0?'+$':'-$')+Math.abs(worstSale.profit).toFixed(2),worstSale.profit>=0?'g':'r'],
-    ['Fees Paid (ex-COGS)','$'+totalFeesOnly.toFixed(2),'r'],
-    ['Expenses','$'+expTotal.toFixed(2),'r'],
-  ].map(([l,v,c])=>`<div class="kpi-card"><div class="kpi-lbl">${l}</div><div class="kpi-val ${c}">${v}</div></div>`).join('');
+    ['ROI',roi,'percent',roi>=50?'g':roi>=20?'y':'r',false,1],
+    ['Fee Ratio',feePct,'percent',feePct<=20?'g':feePct<=35?'y':'r',false,1],
+    ['Best Sale',bestSale.profit,'currency','g',false,2],
+    ['Worst Sale',worstSale.profit,'currency',worstSale.profit>=0?'g':'r',true,2],
+    ['Fees Paid (ex-COGS)',totalFeesOnly,'currency','r',false,2],
+    ['Expenses',expTotal,'currency','r',false,2],
+  ].map(([l,v,t,c,signed,dec])=>`<div class="kpi-card content-fade"><div class="kpi-lbl">${l}</div><div class="kpi-val ${c} anim-num" data-key="an-${l.replace(/[^a-z0-9]+/gi,'-').toLowerCase()}" data-value="${v}" data-type="${t}" data-sign="${signed?1:0}" data-decimals="${dec}">${t==='percent'?v.toFixed(dec)+'%':signed?(v>=0?'+':'-')+'$'+Math.abs(v).toFixed(dec):'$'+(+v).toFixed(dec)}</div></div>`).join('');
+  animateAllNumbers(ge('kpiRow'));
 
   const platRev={},platProfit={},platCount={};
   ac.forEach(s=>{platRev[s.platform]=(platRev[s.platform]||0)+s.revenue;platProfit[s.platform]=(platProfit[s.platform]||0)+s.profit;platCount[s.platform]=(platCount[s.platform]||0)+1;});
@@ -1811,7 +2007,7 @@ function renderHistory(){
       ? `<td><span class="r fw">-$${c.refund.toFixed(2)}</span>${s.refundReason?`<div style="font-size:9px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:80px;" title="${s.refundReason}">${s.refundReason}</div>`:''}</td>`
       : `<td style="color:var(--text3);">—</td>`;
     const exCogsClass = c.netExCogs>=0?'g':'r';
-    return`<tr>
+    return`<tr class="${consumeHighlightClass('history', s.id)}">
       <td>${s.date}</td>
       <td class="td-title" title="${s.title}">${s.title}${c.hasRefund?` <span style="font-size:9px;background:var(--red-dim);color:var(--red-light);padding:1px 5px;border-radius:3px;margin-left:3px;">↩</span>`:''}</td>
       <td><span class="badge ${platformBadge(s.platform)}">${s.platform}</span></td>
@@ -1847,24 +2043,28 @@ function addExpense(){
   const name=ge('e_name').value.trim(),amount=parseFloat(ge('e_amount').value);
   if(!name)return alert('Enter expense name.');
   if(!amount||amount<=0)return alert('Enter a valid amount.');
-  expenses.unshift({
+  const newExpense = {
     id:Date.now(),name,amount,category:gv('e_cat'),
     date:ge('e_date').value||today(),notes:gv('e_notes'),
     photos:[...stagingPhotos.expense]
-  });
+  };
+  expenses.unshift(newExpense);
   save();
+  flagHighlight('expenses', newExpense.id);
+  showInlineChip('expActionChip');
   ge('e_name').value='';ge('e_amount').value='';ge('e_notes').value='';
   clearStagingPhotos('expense');
   renderExpenses();toast('✓ Expense added!');
+  ge('e_name')?.focus();
 }
 
-function deleteExpense(id){if(!confirm('Delete?'))return;expenses=expenses.filter(e=>e.id!==id);save();renderExpenses();}
+function deleteExpense(id){if(!confirm('Delete?'))return;expenses=expenses.filter(e=>e.id!==id);save();renderExpenses();flashEl(ge('expWrap'),'flash-danger');}
 
 function renderExpenses(){
   renderCatCards('expCats');
   if(!expenses.length){ge('expBody').innerHTML='';ge('expEmpty').style.display='block';return;}
   ge('expEmpty').style.display='none';
-  ge('expBody').innerHTML=expenses.map(e=>`<tr>
+  ge('expBody').innerHTML=expenses.map(e=>`<tr class="${consumeHighlightClass('expenses', e.id)}">
     <td>${e.date}</td>
     <td style="color:var(--text);font-weight:500;">${e.name}</td>
     <td><span class="badge by">${e.category}</span></td>
@@ -1934,10 +2134,17 @@ function renderTaxes(){
 function addDeposit(){
   const amount=parseFloat(ge('dep_amount').value);
   if(!amount||amount<=0)return alert('Enter a valid deposit amount.');
-  deposits.unshift({id:Date.now(),amount,date:ge('dep_date').value||today(),note:gv('dep_note')});
-  save();ge('dep_amount').value='';ge('dep_note').value='';renderSavings();toast('✓ Deposit recorded!');
+  const newDeposit = {id:Date.now(),amount,date:ge('dep_date').value||today(),note:gv('dep_note')};
+  deposits.unshift(newDeposit);
+  save();
+  flagHighlight('deposits', newDeposit.id);
+  showInlineChip('depActionChip');
+  ge('dep_amount').value='';ge('dep_note').value='';
+  renderSavings();
+  toast('✓ Deposit recorded!');
+  ge('dep_amount')?.focus();
 }
-function deleteDeposit(id){if(!confirm('Delete?'))return;deposits=deposits.filter(d=>d.id!==id);save();renderSavings();}
+function deleteDeposit(id){if(!confirm('Delete?'))return;deposits=deposits.filter(d=>d.id!==id);save();renderSavings();flashEl(ge('depWrap'),'flash-danger');}
 function renderSavings(){
   const rate=+ge('globalTaxRate').value/100;
   const ac=sales.map(s=>calcSale(s));
@@ -1949,10 +2156,11 @@ function renderSavings(){
   const remaining=Math.max(0,owed-totalSaved);
   const pct=owed>0?Math.min(100,totalSaved/owed*100):totalSaved>0?100:0;
   const over=totalSaved>owed;
-  ge('savingsHero').innerHTML=`<div class="savings-hero">
-    <div class="savings-hero-left"><div class="lbl">💰 Total Tax Saved</div><div class="val">$${totalSaved.toFixed(2)}</div><div class="sub">${deposits.length} deposit${deposits.length!==1?'s':''} recorded</div></div>
-    <div class="savings-hero-right"><div class="lbl">Tax Owed Estimate</div><div class="val r">$${owed.toFixed(2)}</div><div style="font-size:10px;color:var(--text3);margin-top:2px;">${over?'🎉 Fully covered!':'$'+remaining.toFixed(2)+' still needed'}</div></div>
+  ge('savingsHero').innerHTML=`<div class="savings-hero content-fade">
+    <div class="savings-hero-left"><div class="lbl">💰 Total Tax Saved</div><div class="val anim-num" data-key="savings-total-saved" data-value="${totalSaved}">$${totalSaved.toFixed(2)}</div><div class="sub">${deposits.length} deposit${deposits.length!==1?'s':''} recorded</div></div>
+    <div class="savings-hero-right"><div class="lbl">Tax Owed Estimate</div><div class="val r anim-num" data-key="savings-tax-owed" data-value="${owed}">$${owed.toFixed(2)}</div><div style="font-size:10px;color:var(--text3);margin-top:2px;">${over?'🎉 Fully covered!':'$'+remaining.toFixed(2)+' still needed'}</div></div>
   </div>`;
+  animateAllNumbers(ge('savingsHero'));
   ge('savingsStatus').innerHTML=`<div class="card-title">📊 Coverage Status</div>
     <div><div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-bottom:4px;"><span>Saved: $${totalSaved.toFixed(2)}</span><span>Goal: $${owed.toFixed(2)}</span></div>
     <div class="progress-wrap"><div class="progress-fill" style="width:${pct}%;background:${over?'var(--accent)':pct>=75?'var(--accent)':pct>=40?'var(--yellow-light)':'var(--red-light)'};"></div></div>
@@ -1963,7 +2171,7 @@ function renderSavings(){
   ge('depEmpty').style.display='none';
   let running=0;
   const rows=[...deposits].sort((a,b)=>a.date.localeCompare(b.date)).map(d=>{running+=(+d.amount||0);return{...d,running};}).reverse();
-  ge('depBody').innerHTML=rows.map(d=>`<tr>
+  ge('depBody').innerHTML=rows.map(d=>`<tr class="${consumeHighlightClass('deposits', d.id)}">
     <td>${d.date}</td><td style="color:var(--text2);">${d.note||'—'}</td>
     <td class="fw b">+$${(+d.amount).toFixed(2)}</td>
     <td class="b">$${d.running.toFixed(2)}</td>
@@ -2180,6 +2388,7 @@ function saveEditDeposit() {
   if(idx === -1) return;
   deposits[idx] = { ...deposits[idx], amount, date: ge('ed_date').value||today(), note: ge('ed_note').value };
   save();
+  flagHighlight('deposits', deposits[idx].id);
   closeEditDeposit();
   renderSavings();
   toast('✓ Deposit updated!');
@@ -2495,19 +2704,23 @@ function addInventoryItem() {
   const name  = clampStr(sanitizeText(ge('inv_name').value.trim()), 200);
   const stock = Math.max(0, Math.min(99999, parseInt(ge('inv_stock').value)||0));
   if(!name) return alert('Enter an item name.');
-  inventory.push({
+  const newItem = {
     id    : Date.now(),
     name,
     sku   : clampStr(sanitizeText(ge('inv_sku').value.trim()), 80),
     stock,
     cost  : Math.max(0, parseFloat(ge('inv_cost').value)||0),
     notes : clampStr(sanitizeText(ge('inv_notes').value.trim()), 300)
-  });
+  };
+  inventory.push(newItem);
   save();
+  flagHighlight('inventory', newItem.id);
+  showInlineChip('invActionChip');
   ['inv_name','inv_sku','inv_stock','inv_cost','inv_notes'].forEach(id=>ge(id).value='');
   renderInventory();
   populateInvDropdowns();
   toast('📦 Item added!');
+  ge('inv_name')?.focus();
 }
 
 function deleteInventoryItem(id) {
@@ -2516,6 +2729,7 @@ function deleteInventoryItem(id) {
   save();
   renderInventory();
   populateInvDropdowns();
+  flashEl(ge('invGrid'),'flash-danger');
 }
 
 function openEditInv(id) {
@@ -2563,6 +2777,7 @@ function saveEditInv() {
       newStock);
   }
   save();
+  flagHighlight('inventory', inventory[idx].id);
   closeEditInv();
   renderInventory();
   populateInvDropdowns();
@@ -2588,7 +2803,7 @@ function renderInventory() {
         : s<=3
         ? `<span class="inv-stock-badge inv-stock-low">Low: ${s}</span>`
         : `<span class="inv-stock-badge inv-stock-ok">${s} in stock</span>`;
-      return`<div class="inv-card">
+      return`<div class="inv-card ${consumeHighlightClass('inventory', item.id)}">
         <div class="inv-card-name" title="${item.name}">${item.name}</div>
         ${item.sku?`<div class="inv-card-sku">SKU: ${item.sku}</div>`:''}
         <div class="inv-card-row">
@@ -3005,8 +3220,10 @@ function initApp() {
   ge('e_date').value=today();
   ge('dep_date').value=today();
   ge('pageDate').textContent=new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+  enhanceNavAccessibility();
   populateInvDropdowns();
-  renderDashboard();
+  prewarmUiData();
+  renderPage('dashboard');
 }
 
 // ═══════════════════════════════════════════
