@@ -1126,14 +1126,26 @@
 
 <script>
 // ═══════════════════════════════════════════
-// SUPABASE CONFIG — paste your values here
+// RUNTIME CONFIG / STORAGE CONSTANTS
 // ═══════════════════════════════════════════
-const SUPA_URL  = 'https://uacozrldoipvurjrtipd.supabase.co';   // e.g. https://abcxyz.supabase.co
-const SUPA_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVhY296cmxkb2lwdnVyanJ0aXBkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYwMjkxMDUsImV4cCI6MjA5MTYwNTEwNX0.zxQx4_5YTZKzRae8N1V2rQOBiZbCVDoSEKlNDhFi75I';
+const STORAGE_KEYS = {
+  sales: 'fl_sales',
+  expenses: 'fl_expenses',
+  deposits: 'fl_deposits',
+  inventory: 'fl_inventory',
+  invLog: 'fl_invlog',
+  schemaVersion: 'fl_schema_version',
+  localUpdatedAt: 'fl_local_updated_at',
+  cloudUpdatedAt: 'fl_cloud_updated_at',
+  ebayToken: 'fl_ebay_token',
+  ebayLastSyncToDate: 'fl_ebay_last_sync_to_date'
+};
+const STORAGE_SCHEMA_VERSION = 2;
+const MAX_PHOTO_FILE_BYTES = 4 * 1024 * 1024;
+const MAX_PHOTO_TOTAL_BYTES = 20 * 1024 * 1024;
+const HISTORY_RENDER_DEBOUNCE_MS = 100;
 
-const supa = (typeof supabase !== 'undefined' && SUPA_URL && SUPA_KEY)
-  ? supabase.createClient(SUPA_URL, SUPA_KEY)
-  : null;
+let supa = null;
 let currentUser = null;
 let guestMode   = false;
 let startupInFlight = false;
@@ -1151,17 +1163,20 @@ let startupResolved = false;
 // ═══════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════
-let sales     = JSON.parse(localStorage.getItem('fl_sales')     || '[]');
-let expenses  = JSON.parse(localStorage.getItem('fl_expenses')  || '[]');
-let deposits  = JSON.parse(localStorage.getItem('fl_deposits')  || '[]');
-let inventory = JSON.parse(localStorage.getItem('fl_inventory') || '[]');
-let invLog    = JSON.parse(localStorage.getItem('fl_invlog')    || '[]');
+let sales = [];
+let expenses = [];
+let deposits = [];
+let inventory = [];
+let invLog = [];
 let histFilter = 'all';
 const prefersReducedMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 const uiFirstRender = {dashboard:false,history:false,expenses:false,inventory:false};
 const pendingHighlight = {history:null,expenses:null,deposits:null,inventory:null};
 const numberCache = new Map();
 let localMutationTick = 0;
+let lastLocalWriteAt = Number(localStorage.getItem(STORAGE_KEYS.localUpdatedAt) || 0);
+let lastCloudSyncAt = Number(localStorage.getItem(STORAGE_KEYS.cloudUpdatedAt) || 0);
+let historyRenderTimer = null;
 
 // ── Security: strip HTML/script from any user text input
 function sanitizeText(str) {
@@ -1174,6 +1189,184 @@ function sanitizeText(str) {
 function clampStr(str, maxLen) {
   return String(str || '').slice(0, maxLen);
 }
+
+function parseJSONSafe(raw, fallback) {
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed === null || parsed === undefined ? fallback : parsed;
+  } catch {
+    return fallback;
+  }
+}
+
+function toNum(v, fallback = 0, min = 0, max = 999999999) {
+  const n = Number.parseFloat(String(v ?? ''));
+  if(!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
+function toInt(v, fallback = 0, min = 0, max = 999999999) {
+  const n = Number.parseInt(String(v ?? ''), 10);
+  if(!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
+function normalizeDateYmd(raw, fallback=today()) {
+  const str = String(raw || '').trim();
+  if(/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+  const d = new Date(str);
+  if(Number.isNaN(d.getTime())) return fallback;
+  return d.toISOString().slice(0,10);
+}
+
+function normalizePhotoArray(photos) {
+  if(!Array.isArray(photos)) return [];
+  const out = [];
+  let total = 0;
+  for(const p of photos) {
+    const data = String(p || '');
+    if(!data.startsWith('data:image/')) continue;
+    const bytes = Math.ceil(data.length * 0.75);
+    if(bytes > MAX_PHOTO_FILE_BYTES) continue;
+    if(total + bytes > MAX_PHOTO_TOTAL_BYTES) break;
+    total += bytes;
+    out.push(data);
+  }
+  return out;
+}
+
+function sanitizeSaleRecord(s, fallbackId=Date.now()) {
+  const id = toInt(s?.id, fallbackId, 1);
+  const date = normalizeDateYmd(s?.date);
+  const title = sanitizeText(clampStr(s?.title || 'Untitled item', 200));
+  return {
+    id,
+    title,
+    date,
+    platform: sanitizeText(clampStr(s?.platform || 'Other', 60)),
+    sold: toNum(s?.sold, 0),
+    cogs: toNum(s?.cogs, 0),
+    shipping: toNum(s?.shipping, 0),
+    salestax: toNum(s?.salestax, 0),
+    txfee: toNum(s?.txfee, 0),
+    adfee: toNum(s?.adfee, 0),
+    otherfee: toNum(s?.otherfee, 0),
+    notes: sanitizeText(clampStr(s?.notes || '', 500)),
+    refund: toNum(s?.refund, 0),
+    refundReason: sanitizeText(clampStr(s?.refundReason || '', 200)),
+    photos: normalizePhotoArray(s?.photos),
+    invItemId: s?.invItemId ? toInt(s.invItemId, null, 1) : null,
+    invQty: Math.max(1, toInt(s?.invQty, 1, 1, 99999))
+  };
+}
+
+function sanitizeExpenseRecord(e, fallbackId=Date.now()) {
+  return {
+    id: toInt(e?.id, fallbackId, 1),
+    name: sanitizeText(clampStr(e?.name || 'Expense', 200)),
+    amount: toNum(e?.amount, 0),
+    category: sanitizeText(clampStr(e?.category || 'Other', 60)),
+    date: normalizeDateYmd(e?.date),
+    notes: sanitizeText(clampStr(e?.notes || '', 500)),
+    photos: normalizePhotoArray(e?.photos)
+  };
+}
+
+function sanitizeDepositRecord(d, fallbackId=Date.now()) {
+  return {
+    id: toInt(d?.id, fallbackId, 1),
+    amount: toNum(d?.amount, 0),
+    date: normalizeDateYmd(d?.date),
+    note: sanitizeText(clampStr(d?.note || '', 300))
+  };
+}
+
+function sanitizeInventoryRecord(i, fallbackId=Date.now()) {
+  return {
+    id: toInt(i?.id, fallbackId, 1),
+    name: sanitizeText(clampStr(i?.name || 'Inventory Item', 200)),
+    sku: sanitizeText(clampStr(i?.sku || '', 80)),
+    stock: toInt(i?.stock, 0, 0, 99999),
+    unitCost: toNum(i?.unitCost, 0, 0, 999999),
+    notes: sanitizeText(clampStr(i?.notes || '', 300))
+  };
+}
+
+function sanitizeInvLogRecord(x) {
+  return {
+    id: toInt(x?.id, Date.now(), 1),
+    itemId: toInt(x?.itemId, 0, 0),
+    itemName: sanitizeText(clampStr(x?.itemName || '', 200)),
+    date: normalizeDateYmd(x?.date),
+    delta: toInt(x?.delta, 0, -99999, 99999),
+    reason: sanitizeText(clampStr(x?.reason || '', 150)),
+    stockAfter: toInt(x?.stockAfter, 0, 0, 99999)
+  };
+}
+
+function migrateStorageIfNeeded() {
+  const current = toInt(localStorage.getItem(STORAGE_KEYS.schemaVersion), 1, 1);
+  if(current >= STORAGE_SCHEMA_VERSION) return;
+
+  sales = Array.isArray(sales) ? sales.map((s, i)=>sanitizeSaleRecord(s, Date.now()+i)) : [];
+  expenses = Array.isArray(expenses) ? expenses.map((e, i)=>sanitizeExpenseRecord(e, Date.now()+i)) : [];
+  deposits = Array.isArray(deposits) ? deposits.map((d, i)=>sanitizeDepositRecord(d, Date.now()+i)) : [];
+  inventory = Array.isArray(inventory) ? inventory.map((i, idx)=>sanitizeInventoryRecord(i, Date.now()+idx)) : [];
+  invLog = Array.isArray(invLog) ? invLog.map(sanitizeInvLogRecord) : [];
+  localStorage.setItem(STORAGE_KEYS.schemaVersion, String(STORAGE_SCHEMA_VERSION));
+}
+
+function loadStateFromStorage() {
+  sales = parseJSONSafe(localStorage.getItem(STORAGE_KEYS.sales) || '[]', []);
+  expenses = parseJSONSafe(localStorage.getItem(STORAGE_KEYS.expenses) || '[]', []);
+  deposits = parseJSONSafe(localStorage.getItem(STORAGE_KEYS.deposits) || '[]', []);
+  inventory = parseJSONSafe(localStorage.getItem(STORAGE_KEYS.inventory) || '[]', []);
+  invLog = parseJSONSafe(localStorage.getItem(STORAGE_KEYS.invLog) || '[]', []);
+  migrateStorageIfNeeded();
+}
+
+function persistStateToLocalStorage() {
+  try {
+    localStorage.setItem(STORAGE_KEYS.sales, JSON.stringify(sales));
+    localStorage.setItem(STORAGE_KEYS.expenses, JSON.stringify(expenses));
+    localStorage.setItem(STORAGE_KEYS.deposits, JSON.stringify(deposits));
+    localStorage.setItem(STORAGE_KEYS.inventory, JSON.stringify(inventory));
+    localStorage.setItem(STORAGE_KEYS.invLog, JSON.stringify(invLog));
+    lastLocalWriteAt = Date.now();
+    localStorage.setItem(STORAGE_KEYS.localUpdatedAt, String(lastLocalWriteAt));
+    localStorage.setItem(STORAGE_KEYS.schemaVersion, String(STORAGE_SCHEMA_VERSION));
+    return true;
+  } catch(err) {
+    console.error('Local save failed:', err);
+    toast('✕ Save failed (storage full). Remove large photos or export a backup.');
+    return false;
+  }
+}
+
+function mergeById(localArr, remoteArr) {
+  const byId = new Map();
+  (remoteArr || []).forEach(item => byId.set(String(item?.id), item));
+  (localArr || []).forEach(item => byId.set(String(item?.id), item));
+  return Array.from(byId.values()).sort((a,b)=>(+b.id||0)-(+a.id||0));
+}
+
+async function initSupabaseClient() {
+  if(typeof supabase === 'undefined') return null;
+  try {
+    const resp = await fetch('/api/runtime-config', { cache: 'no-store' });
+    const cfg = resp.ok ? await resp.json() : {};
+    const url = String(cfg?.supabaseUrl || '').trim();
+    const key = String(cfg?.supabaseAnonKey || '').trim();
+    if(!url || !key) return null;
+    supa = supabase.createClient(url, key);
+    return supa;
+  } catch(err) {
+    console.error('Supabase config fetch failed:', err);
+    return null;
+  }
+}
+
+loadStateFromStorage();
 
 async function withTimeout(promise, ms, label='Operation') {
   return new Promise((resolve, reject) => {
@@ -1384,7 +1577,7 @@ function showPageSkeleton(page) {
 function renderPageContent(page) {
   if(page==='dashboard') renderDashboard();
   if(page==='analytics') renderAnalytics();
-  if(page==='history')   renderHistory();
+  if(page==='history')   renderHistory(true);
   if(page==='expenses')  renderExpenses();
   if(page==='taxes')     renderTaxes();
   if(page==='savings')   renderSavings();
@@ -1420,12 +1613,8 @@ let stagingPhotos = { sale: [], expense: [] };
 // ── save(): writes to localStorage immediately, then syncs to Supabase if logged in
 function save() {
   localMutationTick++;
-  localStorage.setItem('fl_sales',     JSON.stringify(sales));
-  localStorage.setItem('fl_expenses',  JSON.stringify(expenses));
-  localStorage.setItem('fl_deposits',  JSON.stringify(deposits));
-  localStorage.setItem('fl_inventory', JSON.stringify(inventory));
-  localStorage.setItem('fl_invlog',    JSON.stringify(invLog));
-  if(currentUser && !guestMode) syncToSupabase(false);
+  const persisted = persistStateToLocalStorage();
+  if(persisted && currentUser && !guestMode) syncToSupabase(false);
 }
 
 // ═══════════════════════════════════════════
@@ -1479,18 +1668,40 @@ document.addEventListener('keydown', e=>{
 // ═══════════════════════════════════════════
 // PHOTO UPLOAD (staging)
 // ═══════════════════════════════════════════
+function getPhotoTotalBytes(existingPhotos=[]) {
+  return existingPhotos.reduce((sum, p)=>sum + Math.ceil(String(p || '').length * 0.75), 0);
+}
+
+function canAcceptPhoto(file, existingPhotos=[]) {
+  if(!file || !String(file.type || '').startsWith('image/')) return { ok:false, reason:'Only image files are supported.' };
+  if(file.size > MAX_PHOTO_FILE_BYTES) return { ok:false, reason:`${file.name} is too large (max ${(MAX_PHOTO_FILE_BYTES/1024/1024).toFixed(0)}MB).` };
+  const projected = getPhotoTotalBytes(existingPhotos) + file.size;
+  if(projected > MAX_PHOTO_TOTAL_BYTES) return { ok:false, reason:'Photo limit reached for this record. Remove some photos first.' };
+  return { ok:true };
+}
+
 function handlePhotoAdd(type, input) {
   const files = Array.from(input.files);
   let loaded = 0;
+  let accepted = 0;
+  let skipped = 0;
   files.forEach(file => {
+    const chk = canAcceptPhoto(file, stagingPhotos[type]);
+    if(!chk.ok) {
+      skipped++;
+      return;
+    }
+    accepted++;
     const reader = new FileReader();
     reader.onload = e => {
-      stagingPhotos[type].push(e.target.result);
+      stagingPhotos[type].push(String(e.target.result || ''));
       loaded++;
-      if(loaded === files.length) renderStagingThumbs(type);
+      if(loaded === accepted) renderStagingThumbs(type);
     };
     reader.readAsDataURL(file);
   });
+  if(accepted === 0) renderStagingThumbs(type);
+  if(skipped > 0) toast(`⚠ Skipped ${skipped} photo${skipped!==1?'s':''} due to size/type limits.`);
   input.value = ''; // reset so same file can be re-added
 }
 
@@ -1665,7 +1876,7 @@ function saveEditSale() {
   save();
   flagHighlight('history', sales[idx].id);
   closeEditSale();
-  renderHistory();
+  renderHistory(true);
   flashEl(ge('histWrap'));
   toast('✓ Sale updated!');
 }
@@ -1750,19 +1961,33 @@ function saveEditExpense() {
 function handleEditPhotoAdd(type, input) {
   const files = Array.from(input.files);
   let loaded = 0;
+  let accepted = 0;
+  let skipped = 0;
   files.forEach(file => {
+    const existing = type === 'sale' ? editSalePhotos : editExpensePhotos;
+    const chk = canAcceptPhoto(file, existing);
+    if(!chk.ok) {
+      skipped++;
+      return;
+    }
+    accepted++;
     const reader = new FileReader();
     reader.onload = ev => {
-      if(type === 'sale')    editSalePhotos.push(ev.target.result);
-      if(type === 'expense') editExpensePhotos.push(ev.target.result);
+      if(type === 'sale')    editSalePhotos.push(String(ev.target.result || ''));
+      if(type === 'expense') editExpensePhotos.push(String(ev.target.result || ''));
       loaded++;
-      if(loaded === files.length) {
+      if(loaded === accepted) {
         if(type === 'sale')    renderEditSalePhotos();
         if(type === 'expense') renderEditExpensePhotos();
       }
     };
     reader.readAsDataURL(file);
   });
+  if(accepted === 0) {
+    if(type === 'sale') renderEditSalePhotos();
+    if(type === 'expense') renderEditExpensePhotos();
+  }
+  if(skipped > 0) toast(`⚠ Skipped ${skipped} photo${skipped!==1?'s':''} due to size/type limits.`);
   input.value = '';
 }
 
@@ -1941,7 +2166,7 @@ function submitSale() {
     }
   }
 
-  const newSale = {
+  const newSale = sanitizeSaleRecord({
     id:Date.now(), title, date,
     platform : clampStr(gv('f_platform'), 60),
     sold     : +gv('f_sold')||0, cogs:+gv('f_cogs')||0,
@@ -1953,7 +2178,7 @@ function submitSale() {
     refundReason: clampStr(gv('f_refund_reason'), 200),
     photos   : [...stagingPhotos.sale],
     invItemId, invQty
-  };
+  });
   sales.unshift(newSale);
   if(invItemId) adjustStockForSale(newSale, 'sale');
   save();
@@ -1982,7 +2207,7 @@ function deleteSale(id){
   const s = sales.find(x=>x.id===id);
   if(s) restoreStockForSale(s, 'Sale deleted');
   sales=sales.filter(s=>s.id!==id);
-  save();renderHistory();
+  save();renderHistory(true);
   flashEl(ge('histWrap'), 'flash-danger');
   toast('✕ Sale deleted');
   if(ge('page-dashboard').classList.contains('active'))renderDashboard();
@@ -2148,8 +2373,13 @@ function renderAnalytics() {
 // ═══════════════════════════════════════════
 // HISTORY
 // ═══════════════════════════════════════════
-function setFilter(f,btn){histFilter=f;document.querySelectorAll('.f-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');renderHistory();}
-function renderHistory(){
+function setFilter(f,btn){histFilter=f;document.querySelectorAll('.f-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');renderHistory(true);}
+function renderHistory(immediate=false){
+  if(!immediate) {
+    clearTimeout(historyRenderTimer);
+    historyRenderTimer = setTimeout(()=>renderHistory(true), HISTORY_RENDER_DEBOUNCE_MS);
+    return;
+  }
   const search=(ge('searchInput')?.value||'').toLowerCase();
   const filtered=filterSales(histFilter).filter(s=>s.title.toLowerCase().includes(search));
   ge('histCount').textContent=`${filtered.length} result${filtered.length!==1?'s':''}`;
@@ -2197,11 +2427,11 @@ function addExpense(){
   const name=ge('e_name').value.trim(),amount=parseFloat(ge('e_amount').value);
   if(!name)return alert('Enter expense name.');
   if(!amount||amount<=0)return alert('Enter a valid amount.');
-  const newExpense = {
+  const newExpense = sanitizeExpenseRecord({
     id:Date.now(),name,amount,category:gv('e_cat'),
     date:ge('e_date').value||today(),notes:gv('e_notes'),
     photos:[...stagingPhotos.expense]
-  };
+  });
   expenses.unshift(newExpense);
   save();
   flagHighlight('expenses', newExpense.id);
@@ -2471,11 +2701,11 @@ function confirmImport(){
     if(totalExisting > 0){
       if(!confirm(`This will permanently replace all your current data (${sales.length} sales, ${expenses.length} expenses, ${deposits.length} deposits) with the backup. Are you sure?`)) return;
     }
-    sales     = importData.sales    || [];
-    expenses  = importData.expenses || [];
-    deposits  = importData.deposits || [];
-    inventory = isArr(importData.inventory) ? importData.inventory : [];
-    invLog    = isArr(importData.invLog)    ? importData.invLog    : [];
+    sales = (importData.sales || []).map((s,i)=>sanitizeSaleRecord(s, Date.now()+i));
+    expenses = (importData.expenses || []).map((e,i)=>sanitizeExpenseRecord(e, Date.now()+i));
+    deposits = (importData.deposits || []).map((d,i)=>sanitizeDepositRecord(d, Date.now()+i));
+    inventory = isArr(importData.inventory) ? importData.inventory.map((x,i)=>sanitizeInventoryRecord(x, Date.now()+i)) : [];
+    invLog = isArr(importData.invLog) ? importData.invLog.map(sanitizeInvLogRecord) : [];
     if(importData.taxRate) ge('globalTaxRate').value = importData.taxRate;
   } else {
     const existingSaleIds    = new Set(sales.map(s=>s.id));
@@ -2483,10 +2713,10 @@ function confirmImport(){
     const existingDepositIds = new Set(deposits.map(d=>d.id));
     const existingInvIds     = new Set(inventory.map(i=>i.id));
 
-    const newSales    = (importData.sales    ||[]).filter(s=>!existingSaleIds.has(s.id));
-    const newExpenses = (importData.expenses ||[]).filter(e=>!existingExpenseIds.has(e.id));
-    const newDeposits = (importData.deposits ||[]).filter(d=>!existingDepositIds.has(d.id));
-    const newInv      = isArr(importData.inventory) ? importData.inventory.filter(i=>!existingInvIds.has(i.id)) : [];
+    const newSales    = (importData.sales    ||[]).map((s,i)=>sanitizeSaleRecord(s, Date.now()+i)).filter(s=>!existingSaleIds.has(s.id));
+    const newExpenses = (importData.expenses ||[]).map((e,i)=>sanitizeExpenseRecord(e, Date.now()+i)).filter(e=>!existingExpenseIds.has(e.id));
+    const newDeposits = (importData.deposits ||[]).map((d,i)=>sanitizeDepositRecord(d, Date.now()+i)).filter(d=>!existingDepositIds.has(d.id));
+    const newInv      = isArr(importData.inventory) ? importData.inventory.map((x,i)=>sanitizeInventoryRecord(x, Date.now()+i)).filter(i=>!existingInvIds.has(i.id)) : [];
 
     sales     = [...sales,     ...newSales    ].sort((a,b)=>b.id-a.id);
     expenses  = [...expenses,  ...newExpenses ].sort((a,b)=>b.id-a.id);
@@ -2553,6 +2783,25 @@ ge('editDepositModal').addEventListener('click', function(e){ if(e.target===this
 // EBAY IMPORT MODAL — TAB SWITCHING
 // ═══════════════════════════════════════════
 let ebayPendingOrders = [];
+function normalizeImportedSale(o, fallbackId=Date.now()) {
+  return sanitizeSaleRecord({
+    id: fallbackId,
+    title: o?.title || 'eBay Item',
+    date: normalizeDateYmd(o?.date),
+    platform: o?.platform || 'eBay',
+    sold: toNum(o?.sold, 0),
+    cogs: toNum(o?.cogs, 0),
+    shipping: toNum(o?.shipping, 0),
+    salestax: toNum(o?.salestax, 0),
+    txfee: toNum(o?.txfee, 0),
+    adfee: toNum(o?.adfee, 0),
+    otherfee: toNum(o?.otherfee, 0),
+    notes: o?.notes || '',
+    photos: Array.isArray(o?.photos) ? o.photos : [],
+    refund: toNum(o?.refund, 0),
+    refundReason: o?.refundReason || ''
+  }, fallbackId);
+}
 
 function openEbayModal() {
   ebayPendingOrders = [];
@@ -2562,11 +2811,14 @@ function openEbayModal() {
   ge('ebayApiStatus').style.display   = 'none';
   // Set default date range to last 90 days
   const to   = new Date();
-  const from = new Date(); from.setDate(from.getDate()-90);
+  const savedLastSync = localStorage.getItem(STORAGE_KEYS.ebayLastSyncToDate);
+  const from = savedLastSync ? new Date(savedLastSync + 'T12:00:00') : new Date();
+  if(savedLastSync) from.setDate(from.getDate()+1);
+  else from.setDate(from.getDate()-90);
   ge('ebayToDate').value   = to.toISOString().split('T')[0];
   ge('ebayFromDate').value = from.toISOString().split('T')[0];
   // Restore saved token if any
-  const saved = localStorage.getItem('fl_ebay_token');
+  const saved = localStorage.getItem(STORAGE_KEYS.ebayToken);
   if(saved) ge('ebayToken').value = saved;
   switchEbayTab('csv');
   ge('ebayModal').classList.add('open');
@@ -2672,7 +2924,7 @@ function readEbayCsv(input) {
       for(let i=1;i<rows.length;i++){
         const r = rows[i];
         if(!r || r.length < 2 || r.every(c=>!c.trim())) continue;
-        const title    = (iTitle>=0  ? r[iTitle]  : 'eBay Item').trim() || 'eBay Item';
+        const title    = sanitizeText(clampStr((iTitle>=0  ? r[iTitle]  : 'eBay Item').trim() || 'eBay Item', 200));
         const rawDate  = iDate>=0    ? r[iDate]   : '';
         const soldAmt  = iSold>=0    ? money(r[iSold])   : 0;
         const shipAmt  = iShip>=0    ? money(r[iShip])   : 0;
@@ -2685,7 +2937,7 @@ function readEbayCsv(input) {
         // Skip if already imported (match by order ID stored in notes)
         if(orderId && existingNotes.has(`eBay Order: ${orderId}`)) continue;
 
-        ebayPendingOrders.push({
+        ebayPendingOrders.push(normalizeImportedSale({
           id       : Date.now() + i,
           title,
           date     : parseDate(rawDate),
@@ -2699,7 +2951,7 @@ function readEbayCsv(input) {
           otherfee : 0,
           notes    : orderId ? `eBay Order: ${orderId}` : '',
           photos   : []
-        });
+        }, Date.now() + i));
       }
 
       if(!ebayPendingOrders.length) {
@@ -2740,7 +2992,7 @@ function confirmEbayImport() {
   if(!ebayPendingOrders.length) return;
   // Re-stamp IDs to avoid collisions
   const base = Date.now();
-  const toAdd = ebayPendingOrders.map((o,i)=>({...o, id:base+i}));
+  const toAdd = ebayPendingOrders.map((o,i)=>normalizeImportedSale(o, base + i));
   sales = [...toAdd, ...sales];
   save();
   closeEbayModal();
@@ -2756,7 +3008,7 @@ async function syncEbayApi() {
   const token = ge('ebayToken').value.trim();
   if(!token) { alert('Paste your eBay OAuth User Token first.'); return; }
 
-  localStorage.setItem('fl_ebay_token', token);
+  localStorage.setItem(STORAGE_KEYS.ebayToken, token);
 
   const fromDate = ge('ebayFromDate').value;
   const toDate   = ge('ebayToDate').value;
@@ -2796,8 +3048,14 @@ async function syncEbayApi() {
     // Filter out already-imported orders by their eBay order ID (stored in notes)
     const existingNotes = new Set(sales.map(s => s.notes || ''));
     const base          = Date.now();
-    const newOrders     = orders
-      .filter(o => !existingNotes.has(`eBay Order: ${o.orderId}`))
+    const existingDedupe = new Set(sales.map(s => `${s.date}|${s.title}|${(+s.sold||0).toFixed(2)}`));
+    const newOrders = orders
+      .map((o, i) => normalizeImportedSale(o, base + i))
+      .filter(o => {
+        const orderId = (o.notes || '').replace('eBay Order: ', '').trim();
+        const dedupeKey = `${o.date}|${o.title}|${(+o.sold||0).toFixed(2)}`;
+        return (orderId ? !existingNotes.has(`eBay Order: ${orderId}`) : !existingDedupe.has(dedupeKey));
+      })
       .map((o, i) => ({ ...o, id: base + i }));
 
     if(!newOrders.length) {
@@ -2810,6 +3068,7 @@ async function syncEbayApi() {
 
     sales = [...newOrders, ...sales];
     save();
+    localStorage.setItem(STORAGE_KEYS.ebayLastSyncToDate, toDate);
 
     statusEl.style.background = 'var(--accent-dim)';
     statusEl.style.color      = 'var(--accent-light)';
@@ -3171,11 +3430,13 @@ async function doSignOut() {
   currentUser = null;
   // Clear local state
   sales=[]; expenses=[]; deposits=[]; inventory=[]; invLog=[];
-  localStorage.removeItem('fl_sales');
-  localStorage.removeItem('fl_expenses');
-  localStorage.removeItem('fl_deposits');
-  localStorage.removeItem('fl_inventory');
-  localStorage.removeItem('fl_invlog');
+  localStorage.removeItem(STORAGE_KEYS.sales);
+  localStorage.removeItem(STORAGE_KEYS.expenses);
+  localStorage.removeItem(STORAGE_KEYS.deposits);
+  localStorage.removeItem(STORAGE_KEYS.inventory);
+  localStorage.removeItem(STORAGE_KEYS.invLog);
+  localStorage.removeItem(STORAGE_KEYS.localUpdatedAt);
+  localStorage.removeItem(STORAGE_KEYS.cloudUpdatedAt);
   showAuthScreen();
 }
 
@@ -3338,6 +3599,9 @@ async function _doSync(showFeedback=false) {
     syncChip('err','✕ Sync failed', 4000);
     if(showFeedback) toast('✕ Sync failed: '+(error.message || 'Network or server error'));
   } else {
+    const syncedAt = Date.parse(payload.updated_at) || Date.now();
+    lastCloudSyncAt = syncedAt;
+    localStorage.setItem(STORAGE_KEYS.cloudUpdatedAt, String(lastCloudSyncAt));
     syncChip('ok','✓ Synced', 2000);
     if(showFeedback) toast('✓ Synced to cloud!');
   }
@@ -3353,7 +3617,7 @@ async function loadFromSupabase(expectedMutationTick=null) {
     const res = await withTimeout(
       supa
         .from('user_data')
-        .select('sales, expenses, deposits, inventory, invlog')
+        .select('sales, expenses, deposits, inventory, invlog, updated_at')
         .eq('user_id', currentUser.id)
         .single(),
       AUTH_OP_TIMEOUT_MS,
@@ -3377,17 +3641,32 @@ async function loadFromSupabase(expectedMutationTick=null) {
       console.warn('Cloud load skipped to avoid overwriting newer local changes.');
       return false;
     }
-    sales     = data.sales     || [];
-    expenses  = data.expenses  || [];
-    deposits  = data.deposits  || [];
-    inventory = Array.isArray(data.inventory) ? data.inventory : [];
-    invLog    = Array.isArray(data.invlog)    ? data.invlog    : [];
-    // Mirror to localStorage so offline fallback stays current
-    localStorage.setItem('fl_sales',     JSON.stringify(sales));
-    localStorage.setItem('fl_expenses',  JSON.stringify(expenses));
-    localStorage.setItem('fl_deposits',  JSON.stringify(deposits));
-    localStorage.setItem('fl_inventory', JSON.stringify(inventory));
-    localStorage.setItem('fl_invlog',    JSON.stringify(invLog));
+    const remoteSales = Array.isArray(data.sales) ? data.sales.map((s,i)=>sanitizeSaleRecord(s, Date.now()+i)) : [];
+    const remoteExpenses = Array.isArray(data.expenses) ? data.expenses.map((e,i)=>sanitizeExpenseRecord(e, Date.now()+i)) : [];
+    const remoteDeposits = Array.isArray(data.deposits) ? data.deposits.map((d,i)=>sanitizeDepositRecord(d, Date.now()+i)) : [];
+    const remoteInventory = Array.isArray(data.inventory) ? data.inventory.map((x,i)=>sanitizeInventoryRecord(x, Date.now()+i)) : [];
+    const remoteInvLog = Array.isArray(data.invlog) ? data.invlog.map(sanitizeInvLogRecord) : [];
+    const remoteUpdatedAt = Date.parse(data.updated_at || '') || 0;
+    const localIsNewer = lastLocalWriteAt > remoteUpdatedAt && lastLocalWriteAt > (lastCloudSyncAt || 0);
+
+    if(localIsNewer) {
+      sales = mergeById(sales, remoteSales);
+      expenses = mergeById(expenses, remoteExpenses);
+      deposits = mergeById(deposits, remoteDeposits);
+      inventory = mergeById(inventory, remoteInventory);
+      invLog = mergeById(invLog, remoteInvLog);
+      syncChip('ok','✓ Merged local + cloud changes', 3000);
+    } else {
+      sales = remoteSales;
+      expenses = remoteExpenses;
+      deposits = remoteDeposits;
+      inventory = remoteInventory;
+      invLog = remoteInvLog;
+    }
+
+    lastCloudSyncAt = remoteUpdatedAt || Date.now();
+    localStorage.setItem(STORAGE_KEYS.cloudUpdatedAt, String(lastCloudSyncAt));
+    persistStateToLocalStorage();
   }
   return true;
 }
@@ -3456,12 +3735,18 @@ function initApp() {
     const ov = ge('loadingOverlay');
     startupResolved = false;
     armStartupGuard();
+    await initSupabaseClient();
     if(!supa?.auth) {
       console.error('Startup error: Supabase client not initialized.');
-      if(ov) ov.classList.add('hidden');
       startupResolved = true;
-      ge('authScreen').classList.remove('hidden');
-      setAuthError('Cloud auth is unavailable right now.');
+      clearTimeout(startupGuardTimer);
+      if(ov) ov.classList.add('hidden');
+      const auth = ge('authScreen');
+      if(auth) auth.classList.add('hidden');
+      ge('main').classList.remove('hidden');
+      guestMode = true;
+      initApp();
+      toast('⚠ Cloud sync unavailable. Running in local-only mode.');
       return;
     }
 
