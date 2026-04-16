@@ -52,19 +52,56 @@
     font-family:var(--font);font-size:12px;transition:all .12s;
   }
   .auth-guest-btn:hover{border-color:var(--text3);color:var(--text2);}
-  /* Loading overlay */
+  /* ── LOADING OVERLAY (full-screen data cover) ── */
   #loadingOverlay{
-    position:fixed;inset:0;z-index:9998;background:var(--bg);
-    display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;
+    position:fixed;inset:0;z-index:9998;
+    background:var(--bg);
+    display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;
+    transition:opacity 0.35s ease;
+    opacity:1;
   }
-  #loadingOverlay.hidden{display:none;}
+  #loadingOverlay.fade-out{ opacity:0; pointer-events:none; }
+  #loadingOverlay.hidden{ display:none; }
   .loading-spinner{
-    width:28px;height:28px;border:3px solid var(--border2);
+    width:26px;height:26px;border:2.5px solid var(--border2);
     border-top-color:var(--accent);border-radius:50%;
-    animation:spin .7s linear infinite;
+    animation:spin .75s linear infinite;
   }
   @keyframes spin{to{transform:rotate(360deg);}}
-  .loading-text{font-size:12px;color:var(--text3);}
+  .loading-text{font-size:12px;color:var(--text3);letter-spacing:0.3px;}
+
+  /* ── SYNC PROGRESS BAR (top of screen, non-blocking) ── */
+  #syncProgressBar{
+    position:fixed;top:0;left:0;right:0;height:2px;z-index:99999;
+    pointer-events:none;opacity:0;
+    transition:opacity 0.18s ease;
+  }
+  #syncProgressBar.visible{ opacity:1; }
+  #syncProgressBar .spb-fill{
+    height:100%;width:0%;
+    background:linear-gradient(90deg,var(--accent),var(--accent-light),var(--accent));
+    background-size:200% 100%;
+    border-radius:0 2px 2px 0;
+    transition:width 2.5s cubic-bezier(0.05,0.7,0.3,1);
+    animation:spb-shimmer 1.6s linear infinite;
+  }
+  @keyframes spb-shimmer{ 0%{background-position:200% center} 100%{background-position:-200% center} }
+
+  /* ── SYNC STATUS CHIP (in topbar) ── */
+  #syncChip{
+    display:inline-flex;align-items:center;gap:5px;
+    padding:3px 9px;border-radius:20px;font-size:10px;font-weight:600;
+    opacity:0;transform:translateY(-3px);
+    transition:opacity 0.2s ease,transform 0.2s ease;
+    pointer-events:none;white-space:nowrap;flex-shrink:0;
+  }
+  #syncChip.show{ opacity:1;transform:translateY(0); }
+  #syncChip.syncing{ background:rgba(61,140,110,0.12);border:1px solid rgba(61,140,110,0.25);color:var(--accent-light); }
+  #syncChip.ok    { background:rgba(61,140,110,0.12);border:1px solid rgba(61,140,110,0.25);color:var(--accent-light); }
+  #syncChip.err   { background:var(--red-dim);border:1px solid rgba(140,74,74,0.3);color:var(--red-light); }
+  .sc-dot{ width:5px;height:5px;border-radius:50%;background:currentColor;flex-shrink:0; }
+  .sc-dot.pulse{ animation:sc-pulse 0.9s ease-in-out infinite; }
+  @keyframes sc-pulse{ 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.35;transform:scale(0.65)} }
   /* User badge in topbar */
   .user-badge{
     display:flex;align-items:center;gap:6px;
@@ -413,10 +450,13 @@
 </head>
 <body>
 
+<!-- ═══ SYNC PROGRESS BAR ═══ -->
+<div id="syncProgressBar"><div class="spb-fill" id="spbFill"></div></div>
+
 <!-- ═══ LOADING OVERLAY ═══ -->
 <div id="loadingOverlay">
   <div class="loading-spinner"></div>
-  <div class="loading-text">Loading FlipLedger…</div>
+  <div class="loading-text" id="loadingText">Loading FlipLedger…</div>
 </div>
 
 <!-- ═══ AUTH SCREEN ═══ -->
@@ -500,6 +540,7 @@
       <div class="topbar-date" id="pageDate"></div>
     </div>
     <div class="topbar-actions">
+      <div id="syncChip"><div class="sc-dot pulse" id="scDot"></div><span id="scText">Syncing…</span></div>
       <div class="user-badge" id="userBadge" style="display:none;"><div class="dot"></div><span id="userEmail" style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span></div>
       <button class="sync-btn" id="syncBtn" style="display:none;" onclick="syncToSupabase(true)" title="Sync data to cloud">⟳ Sync</button>
       <button class="sign-out-btn" id="signOutBtn" style="display:none;" onclick="doSignOut()">Sign Out</button>
@@ -2740,21 +2781,70 @@ function useAsGuest() {
 }
 
 function showAuthScreen() {
+  currentUser = null;
+  guestMode = false;
+  dismissOverlay();
   ge('authScreen').classList.remove('hidden');
-  ge('loadingOverlay').classList.add('hidden');
   ge('userBadge').style.display  = 'none';
   ge('syncBtn').style.display    = 'none';
   ge('signOutBtn').style.display = 'none';
+  const chip = ge('syncChip'); if(chip) chip.classList.remove('show');
 }
 
 function showApp(user) {
   currentUser = user;
   ge('authScreen').classList.add('hidden');
-  ge('loadingOverlay').classList.add('hidden');
   ge('userBadge').style.display  = 'flex';
   ge('syncBtn').style.display    = 'inline-block';
   ge('signOutBtn').style.display = 'inline-block';
   ge('userEmail').textContent    = user.email;
+  // Overlay is dismissed by startup() after initApp() completes
+}
+
+// ═══════════════════════════════════════════
+// SYNC UI HELPERS
+// ═══════════════════════════════════════════
+let _chipTimer = null;
+
+function syncChip(state, text, autohideMs=0) {
+  const chip = ge('syncChip');
+  const dot  = ge('scDot');
+  const lbl  = ge('scText');
+  if(!chip) return;
+  clearTimeout(_chipTimer);
+  chip.className = state + ' show';           // 'syncing' | 'ok' | 'err'
+  dot.className  = 'sc-dot' + (state==='syncing' ? ' pulse' : '');
+  lbl.textContent = text;
+  if(autohideMs) _chipTimer = setTimeout(() => chip.classList.remove('show'), autohideMs);
+}
+
+function progressStart() {
+  const bar  = ge('syncProgressBar');
+  const fill = ge('spbFill');
+  if(!bar||!fill) return;
+  fill.style.transition='none'; fill.style.width='0%';
+  bar.classList.add('visible');
+  requestAnimationFrame(() => {
+    fill.style.transition='width 2.5s cubic-bezier(0.05,0.7,0.3,1)';
+    fill.style.width='80%';
+  });
+}
+
+function progressDone() {
+  const bar  = ge('syncProgressBar');
+  const fill = ge('spbFill');
+  if(!bar||!fill) return;
+  fill.style.transition='width 0.2s ease';
+  fill.style.width='100%';
+  setTimeout(()=>{ bar.classList.remove('visible'); setTimeout(()=>fill.style.width='0%',200); },300);
+}
+
+// ── Dismiss the full-screen overlay with a smooth fade ──────────────────────
+function dismissOverlay() {
+  const ov = ge('loadingOverlay');
+  if(!ov || ov.classList.contains('hidden')) return;
+  ov.classList.add('fade-out');
+  setTimeout(() => ov.classList.add('hidden'), 360);
 }
 
 // ═══════════════════════════════════════════
@@ -2784,11 +2874,9 @@ let syncTimer = null;
 
 async function syncToSupabase(manual=false) {
   if(!currentUser || guestMode) return;
-
-  // Debounce auto-saves — only flush immediately on manual sync
   if(!manual) {
     clearTimeout(syncTimer);
-    syncTimer = setTimeout(()=>_doSync(), 2000);
+    syncTimer = setTimeout(()=>_doSync(false), 2000);
     return;
   }
   await _doSync(true);
@@ -2796,16 +2884,19 @@ async function syncToSupabase(manual=false) {
 
 async function _doSync(showFeedback=false) {
   if(!currentUser) return;
+
   const btn = ge('syncBtn');
   if(btn) { btn.textContent='⟳ Syncing…'; btn.disabled=true; }
+  syncChip('syncing','Syncing…');
+  progressStart();
 
   const payload = {
-    user_id  : currentUser.id,
-    sales    : sales,
-    expenses : expenses,
-    deposits : deposits,
-    inventory: inventory,
-    invlog   : invLog,
+    user_id   : currentUser.id,
+    sales     : sales,
+    expenses  : expenses,
+    deposits  : deposits,
+    inventory : inventory,
+    invlog    : invLog,
     updated_at: new Date().toISOString()
   };
 
@@ -2813,18 +2904,24 @@ async function _doSync(showFeedback=false) {
     .from('user_data')
     .upsert(payload, {onConflict:'user_id'});
 
+  progressDone();
   if(btn) { btn.textContent='⟳ Sync'; btn.disabled=false; }
 
   if(error) {
     console.error('Supabase sync error:', error.message);
+    syncChip('err','✕ Sync failed', 4000);
     if(showFeedback) toast('✕ Sync failed: '+error.message);
   } else {
+    syncChip('ok','✓ Synced', 2000);
     if(showFeedback) toast('✓ Synced to cloud!');
   }
 }
 
+// Loads cloud data into local arrays, then updates localStorage.
+// Called BEFORE showing the app — overlay stays up until this resolves.
 async function loadFromSupabase() {
   if(!currentUser) return false;
+
   const {data, error} = await supa
     .from('user_data')
     .select('sales, expenses, deposits, inventory, invlog')
@@ -2832,6 +2929,7 @@ async function loadFromSupabase() {
     .single();
 
   if(error && error.code !== 'PGRST116') {
+    // PGRST116 = no rows yet (new user), that's fine
     console.error('Load error:', error.message);
     return false;
   }
@@ -2842,6 +2940,7 @@ async function loadFromSupabase() {
     deposits  = data.deposits  || [];
     inventory = Array.isArray(data.inventory) ? data.inventory : [];
     invLog    = Array.isArray(data.invlog)    ? data.invlog    : [];
+    // Mirror to localStorage so offline fallback stays current
     localStorage.setItem('fl_sales',     JSON.stringify(sales));
     localStorage.setItem('fl_expenses',  JSON.stringify(expenses));
     localStorage.setItem('fl_deposits',  JSON.stringify(deposits));
@@ -2868,37 +2967,47 @@ function initApp() {
 // ═══════════════════════════════════════════
 (async function startup() {
   try {
+    // Always start with the overlay covering everything
+    const ov = ge('loadingOverlay');
+
     // Listen for auth state changes (handles login, logout, token refresh)
     supa.auth.onAuthStateChange(async (event, session) => {
       if(event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-        if(!currentUser) { // First sign-in this session
-          ge('loadingOverlay').classList.remove('hidden');
-          ge('authScreen').classList.add('hidden');
-          ge('loadingOverlay').querySelector('.loading-text').textContent = 'Loading your data…';
+        if(!currentUser) {
+          // User just logged in — keep overlay up, fetch cloud data, THEN reveal app
+          ge('loadingText').textContent = 'Loading your data…';
+          currentUser = session.user;
           await loadFromSupabase();
           showApp(session.user);
           initApp();
+          syncChip('ok','✓ Up to date', 2000);
+          dismissOverlay();
         }
       } else if(event === 'SIGNED_OUT') {
         showAuthScreen();
       }
     });
 
-    // Check for existing session
-    const {data:{session}} = await supa.auth.getSession();
+    // Check for an existing session on page load
+    const {data:{session}, error:sessionErr} = await supa.auth.getSession();
+
+    if(sessionErr) throw sessionErr;
+
     if(session) {
-      ge('loadingOverlay').querySelector('.loading-text').textContent = 'Loading your data…';
+      // Returning user — keep overlay up, load cloud data, then reveal app
+      ge('loadingText').textContent = 'Loading your data…';
       currentUser = session.user;
       await loadFromSupabase();
       showApp(session.user);
       initApp();
+      syncChip('ok','✓ Up to date', 2000);
+      dismissOverlay();
     } else {
-      // No session — show auth screen
-      ge('loadingOverlay').classList.add('hidden');
+      // No session — hide overlay immediately and show auth screen
+      ov.classList.add('hidden');
       ge('authScreen').classList.remove('hidden');
     }
   } catch(err) {
-    // If Supabase fails (bad keys, network error, etc.), fall back to auth screen
     console.error('Startup error:', err);
     ge('loadingOverlay').classList.add('hidden');
     ge('authScreen').classList.remove('hidden');
