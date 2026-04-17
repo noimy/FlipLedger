@@ -4,6 +4,11 @@
   "description": "FlipLedger — eBay Reseller Accountant",
   "private": true,
   "type": "module",
+  "scripts": {
+    "lint": "node --check api/ebay.js && node --check api/runtime-config.js",
+    "build": "echo \"No build step for static FlipLedger app\"",
+    "test": "node --test"
+  },
   "engines": {
     "node": "20.x"
   }
