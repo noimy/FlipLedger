@@ -16,16 +16,6 @@
 
 That URL is your app. Bookmark it — it's always live.
 
-### Environment variables (recommended)
-
-In Vercel project settings, add:
-
-- `SUPABASE_URL` = your Supabase project URL
-- `SUPABASE_ANON_KEY` = your Supabase public anon key
-- `ALLOWED_ORIGINS` = comma-separated allowed app origins (for `/api/ebay` CORS), e.g. `https://flipledger-abc123.vercel.app`
-
-If Supabase env vars are missing, FlipLedger now falls back to local-only mode (no cloud auth/sync).
-
 ---
 
 ## Step 2 — Set up eBay API Sync (one-time, ~10 minutes)
